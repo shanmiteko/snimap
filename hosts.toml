@@ -1,0 +1,215 @@
+[[dns]]
+hostname = 'duckduckgo.com'
+address = '40.89.244.232'
+
+[[dns]]
+hostname = 'duck.com'
+address = '40.89.244.232'
+
+[[dns]]
+hostname = 'external-content.duckduckgo.com'
+address = '40.89.244.234'
+
+[[dns]]
+hostname = 'links.duckduckgo.com'
+address = '20.83.18.132'
+
+[[dns]]
+hostname = 'nhentai.net'
+address = '104.21.66.123'
+
+[[dns]]
+hostname = 'static.nhentai.net'
+address = '172.67.159.231'
+
+[[dns]]
+hostname = 't2.nhentai.net'
+address = '185.107.44.3'
+
+[[dns]]
+hostname = 't5.nhentai.net'
+address = '185.177.127.77'
+
+[[dns]]
+hostname = 't7.nhentai.net'
+address = '185.177.127.78'
+
+[[dns]]
+hostname = 'i.nhentai.net'
+address = '185.177.127.78'
+
+[[dns]]
+hostname = 'i2.nhentai.net'
+address = '185.107.44.3'
+
+[[dns]]
+hostname = 'i5.nhentai.net'
+address = '185.177.127.77'
+
+[[dns]]
+hostname = 'cdnjs.cloudflare.com'
+address = '104.17.25.14'
+
+[[dns]]
+hostname = 'github.com'
+address = '140.82.114.3'
+
+[[dns]]
+hostname = 'github.githubassets.com'
+address = '185.199.111.154'
+
+[[dns]]
+hostname = 'central.github.com'
+address = '140.82.112.21'
+
+[[dns]]
+hostname = 'desktop.githubusercontent.com'
+address = '185.199.109.133'
+
+[[dns]]
+hostname = 'assets-cdn.github.com'
+address = '185.199.110.153'
+
+[[dns]]
+hostname = 'camo.githubusercontent.com'
+address = '185.199.111.133'
+
+[[dns]]
+hostname = 'github.map.fastly.net'
+address = '185.199.110.133'
+
+[[dns]]
+hostname = 'github.global.ssl.fastly.net'
+address = '199.232.69.194'
+
+[[dns]]
+hostname = 'gist.github.com'
+address = '140.82.112.3'
+
+[[dns]]
+hostname = 'github.io'
+address = '185.199.109.153'
+
+[[dns]]
+hostname = 'api.github.com'
+address = '140.82.113.5'
+
+[[dns]]
+hostname = 'raw.githubusercontent.com'
+address = '185.199.109.133'
+
+[[dns]]
+hostname = 'user-images.githubusercontent.com'
+address = '185.199.110.133'
+
+[[dns]]
+hostname = 'favicons.githubusercontent.com'
+address = '185.199.109.133'
+
+[[dns]]
+hostname = 'avatars5.githubusercontent.com'
+address = '185.199.108.133'
+
+[[dns]]
+hostname = 'avatars4.githubusercontent.com'
+address = '185.199.108.133'
+
+[[dns]]
+hostname = 'avatars3.githubusercontent.com'
+address = '185.199.108.133'
+
+[[dns]]
+hostname = 'avatars2.githubusercontent.com'
+address = '185.199.108.133'
+
+[[dns]]
+hostname = 'avatars1.githubusercontent.com'
+address = '185.199.109.133'
+
+[[dns]]
+hostname = 'avatars0.githubusercontent.com'
+address = '185.199.109.133'
+
+[[dns]]
+hostname = 'avatars.githubusercontent.com'
+address = '185.199.109.133'
+
+[[dns]]
+hostname = 'codeload.github.com'
+address = '140.82.114.10'
+
+[[dns]]
+hostname = 'githubstatus.com'
+address = '185.199.111.153'
+
+[[dns]]
+hostname = 'github.community'
+address = '64.71.144.211'
+
+[[dns]]
+hostname = 'media.githubusercontent.com'
+address = '185.199.108.133'
+
+[[dns]]
+hostname = 'live.com'
+address = '204.79.197.212'
+
+[[dns]]
+hostname = 'onedrive.live.com'
+address = '13.107.42.13'
+
+[[dns]]
+hostname = 'cloudflare.com'
+address = '104.16.132.229'
+
+[[dns]]
+hostname = 'cdnjs.cloudflare.com'
+address = '104.17.25.14'
+
+[[dns]]
+hostname = 'heroku.com'
+address = '54.160.84.228'
+
+[[dns]]
+hostname = 'id.heroku.com'
+address = '54.205.213.205'
+
+[[dns]]
+hostname = 'dashboard.heroku.com'
+address = '199.232.70.133'
+
+[[dns]]
+hostname = 'pixiv.net'
+address = '210.140.92.183'
+
+[[dns]]
+hostname = 'www.pixiv.net'
+address = '104.18.36.166'
+
+[[dns]]
+hostname = 'linux.com'
+address = '23.185.0.3'
+
+[[dns]]
+hostname = 'www.linux.com'
+address = '23.185.0.3'
+
+[[dns]]
+hostname = 'wikipedia.org'
+address = '208.80.153.224'
+
+[[dns]]
+hostname = 'en.wikipedia.org'
+address = '208.80.153.224'
+
+[[dns]]
+hostname = 'zh.wikipedia.org'
+address = '208.80.153.224'
+
+[[dns]]
+hostname = 'steamcommunity.com'
+address = '104.78.121.166'
+
+[[dns]]
+hostname = 'discordapp.com'
+address = '162.159.135.233'
