@@ -1,16 +1,14 @@
-use tokio::fs;
+use crate::dirs::hosts_path;
+use crate::utils::{read_to_string, write};
 
 pub async fn edit_hosts(hostnames: Vec<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(not(unix))]
-    unimplemented!();
+    let hosts_path = hosts_path().ok_or("hosts file not found")?;
 
-    let hosts_path = "/etc/hosts";
-
-    let mut hosts_string = fs::read_to_string(hosts_path).await?;
+    let mut hosts_string = read_to_string(&hosts_path).await?;
 
     hosts_string = gen_hosts(&hosts_string, hostnames);
 
-    fs::write(hosts_path, hosts_string).await?;
+    write(&hosts_path, &hosts_string).await?;
 
     Ok(())
 }

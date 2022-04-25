@@ -1,5 +1,4 @@
 ```bash
-sudo firewall-cmd --zone=public --permanent --add-port=80/tcp
-sudo firewall-cmd --zone=public --permanent --add-port=443/tcp
-sudo systemctl restart firewalld
+$ sudo zypper install libcap2
+$ sudo setcap 'CAP_DAC_OVERRIDE+ep cap_net_bind_service=+ep' <executable file>
 ```

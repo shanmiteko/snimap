@@ -1,6 +1,9 @@
-use std::env;
+use std::{
+    env,
+    net::{IpAddr, SocketAddr},
+};
 
-use config::{Hosts, HostsError};
+use config::Config;
 use reqwest::Client;
 use rustls::ClientConfig as TlsConfig;
 use warp::{Filter, Rejection, Reply};
@@ -10,7 +13,9 @@ use warp_reverse_proxy::{
 
 mod cert;
 mod config;
+mod dirs;
 mod hosts;
+mod utils;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,16 +24,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut disable_sni_reverse_proxy_client_builder =
         Client::builder().use_preconfigured_tls(tls_config());
 
-    let hosts = parse_hosts("hosts.toml").await?;
+    let mut config = Config::from_file().await?;
+
+    config.lookup().await?;
+
+    config.update_file().await?;
 
     let mut alt_dnsname_vec = vec!["localhost"];
 
-    if let Some(dns_vec) = hosts.dns.as_ref() {
-        for dns in dns_vec {
-            if let Some(addr) = dns.addr() {
-                alt_dnsname_vec.push(&dns.hostname);
-                disable_sni_reverse_proxy_client_builder =
-                    disable_sni_reverse_proxy_client_builder.resolve(dns.hostname.as_ref(), addr);
+    if let Some(group) = config.group() {
+        for g in group {
+            if let Some(dns) = g.dns() {
+                for d in dns {
+                    if let Some(hostname) = d.hostname() {
+                        if let Some(address) = d.address() {
+                            if let Ok(addr) = address.parse::<IpAddr>() {
+                                alt_dnsname_vec.push(hostname);
+                                disable_sni_reverse_proxy_client_builder =
+                                    disable_sni_reverse_proxy_client_builder
+                                        .resolve(hostname, SocketAddr::new(addr, 443));
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -89,16 +107,6 @@ fn tls_config() -> TlsConfig {
     tls
 }
 
-async fn parse_hosts(path: &str) -> Result<Hosts, HostsError> {
-    let mut hosts = Hosts::from_path(path).await?;
-
-    hosts.lookup_all().await?;
-
-    hosts.write_to_path(path).await?;
-
-    Ok(hosts)
-}
-
 async fn extract_host_from_authority(
     auth: Option<warp::host::Authority>,
 ) -> Result<String, Rejection> {
@@ -107,8 +115,8 @@ async fn extract_host_from_authority(
 
     impl warp::reject::Reject for HostNotFound {}
 
-    auth.and_then(|auth| Some(auth.host().to_string()))
-        .ok_or(warp::reject::custom(HostNotFound {}))
+    auth.map(|auth| auth.host().to_string())
+        .ok_or_else(|| warp::reject::custom(HostNotFound {}))
 }
 
 async fn handle_error(rejection: Rejection) -> Result<impl Reply, Rejection> {
