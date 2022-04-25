@@ -3,6 +3,7 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Deserialize, Serialize)]
 pub struct Config {
     enable: Option<bool>,
+    enable_sni: Option<bool>,
     group: Vec<Group>,
 }
 
@@ -20,6 +21,7 @@ impl Config {
 #[derive(Deserialize, Serialize)]
 pub struct Group {
     enable: Option<bool>,
+    enable_sni: Option<bool>,
     name: String,
     dns: Vec<Dns>,
 }
@@ -30,6 +32,7 @@ impl Group {
             name: name.to_string(),
             dns,
             enable: None,
+            enable_sni: None,
         }
     }
 
@@ -46,6 +49,7 @@ impl Group {
 #[derive(Deserialize, Serialize)]
 pub struct Dns {
     enable: Option<bool>,
+    enable_sni: Option<bool>,
     hostname: String,
     sni_override: Option<String>,
     address: Option<String>,
@@ -55,6 +59,7 @@ impl Dns {
     pub fn new(hostname: &str) -> Self {
         Self {
             enable: None,
+            enable_sni: None,
             hostname: hostname.to_string(),
             sni_override: None,
             address: None,
@@ -83,6 +88,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enable: None,
+            enable_sni: None,
             group: vec![
                 Group::new(
                     "Duckduckgo",
@@ -137,6 +143,19 @@ impl Default for Config {
                         "wikimedia.org",
                         "login.wikimedia.org",
                         "upload.wikimedia.org",
+                    ]
+                    .into_iter()
+                    .map(Dns::new)
+                    .collect(),
+                ),
+                Group::new(
+                    "Twitch",
+                    [
+                        "twitch.tv",
+                        "www.twitch.tv",
+                        "static.twitchcdn.net",
+                        "static.twitchcdn.net",
+                        "links.duckduckgo.com",
                     ]
                     .into_iter()
                     .map(Dns::new)
