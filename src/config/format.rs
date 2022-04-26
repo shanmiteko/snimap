@@ -105,6 +105,7 @@ impl Default for Config {
                 Group::new(
                     "Github",
                     [
+                        "github.com",
                         "avatars.githubusercontent.com",
                         "avatars0.githubusercontent.com",
                         "avatars1.githubusercontent.com",
@@ -113,8 +114,6 @@ impl Default for Config {
                         "camo.githubusercontent.com",
                         "cloud.githubusercontent.com",
                         "github.githubassets.com",
-                        "githubusercontent.com",
-                        "raw.github.com",
                         "raw.githubusercontent.com",
                         "user-images.githubusercontent.com",
                     ]
@@ -154,8 +153,6 @@ impl Default for Config {
                         "twitch.tv",
                         "www.twitch.tv",
                         "static.twitchcdn.net",
-                        "static.twitchcdn.net",
-                        "links.duckduckgo.com",
                     ]
                     .into_iter()
                     .map(Dns::new)

@@ -12,7 +12,7 @@ pub fn config_file() -> PathBuf {
 
 pub fn hosts_path() -> Option<PathBuf> {
     let path = if cfg!(windows) {
-        PathBuf::from(r"C:\Windows\System32\drivers\etc")
+        PathBuf::from(r"C:\Windows\System32\drivers\etc\hosts")
     } else {
         PathBuf::from("/etc/hosts")
     };

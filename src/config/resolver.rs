@@ -14,7 +14,7 @@ impl Dns {
     pub async fn lookup(&mut self) -> Result<(), Error> {
         if self.address().is_none() {
             if let Some(hostname) = self.hostname() {
-                log::info!("lookup {}", hostname);
+                tracing::info!("lookup {}", hostname);
                 if let Some(address) =
                     capture_ip_from_html_plain(ip_lookup_on_ipaddress_com(hostname).await?)
                 {

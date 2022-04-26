@@ -15,12 +15,12 @@ pub async fn edit_hosts(hostnames: Vec<&str>) -> Result<(), Box<dyn std::error::
 
 fn gen_hosts(old_hosts: &str, hostnames: Vec<&str>) -> String {
     let mut is_will_change = false;
-    let flag = "# disable_sni_reverse_proxy auto generate";
+    let flag = "# Auto Generate by disable_sni_reverse_proxy";
 
     let mut hosts_vec = old_hosts
         .lines()
         .filter(|line| {
-            let is_flag_line = line.starts_with(flag);
+            let is_flag_line = line.starts_with(&flag[..15]);
             if is_flag_line {
                 is_will_change = !is_will_change;
                 return false;
@@ -60,10 +60,10 @@ fn gen_hosts_is_ok() {
     let new_hosts = "# ...
 # ...
 127.0.0.1\tlocalhost
-# disable_sni_reverse_proxy auto generate
+# Auto Generate by disable_sni_reverse_proxy
 127.0.0.1\thostname1
 127.0.0.1\thostname2
-# disable_sni_reverse_proxy auto generate";
+# Auto Generate by disable_sni_reverse_proxy";
     assert_eq!(gen_hosts(old_hosts, hostnames.clone()), new_hosts);
     assert_eq!(gen_hosts(new_hosts, hostnames.clone()), new_hosts);
 }

@@ -3,6 +3,7 @@ use std::{
     net::{IpAddr, SocketAddr},
 };
 
+use async_ctrlc::CtrlC;
 use config::Config;
 use reqwest::Client;
 use rustls::ClientConfig as TlsConfig;
@@ -30,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     config.update_file().await?;
 
-    let mut alt_dnsname_vec = vec!["localhost"];
+    let mut alt_dnsname_vec = Vec::new();
 
     if let Some(group) = config.group() {
         for g in group {
@@ -71,12 +72,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .recover(handle_error)
         .with(warp::log("proxy"));
 
-    warp::serve(proxy)
+    let (addr, server) = warp::serve(proxy)
         .tls()
         .key(certificate.key)
         .cert(certificate.cert)
-        .run(([127, 0, 0, 1], 443))
-        .await;
+        .bind_with_graceful_shutdown(([127, 0, 0, 1], 443), async {
+            if let Ok(ctrlc) = CtrlC::new() {
+                tracing::info!("pressed CtrlC to shutdown");
+                ctrlc.await;
+                if let Err(e) = hosts::edit_hosts(Vec::new()).await {
+                    tracing::error!("failed to restore hosts {:?}", e);
+                } else {
+                    tracing::info!("graceful shutdown")
+                }
+            } else {
+                tracing::error!("ctrlc hook failed")
+            }
+        });
+
+    tracing::info!("listening on https://{}", addr);
+
+    server.await;
 
     Ok(())
 }
