@@ -8,13 +8,20 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn group(&mut self) -> Option<&mut Vec<Group>> {
-        if let Some(enable) = self.enable.or(Some(true)) {
-            if enable && !self.group.is_empty() {
-                return Some(self.group.as_mut());
-            }
-        }
-        None
+    pub fn enable(&self) -> bool {
+        self.enable.unwrap_or(true)
+    }
+
+    pub fn enable_sni(&self) -> bool {
+        self.enable_sni.unwrap_or(false)
+    }
+
+    pub fn group_mut(&mut self) -> &mut Vec<Group> {
+        self.group.as_mut()
+    }
+
+    pub fn group(self) -> Vec<Group> {
+        self.group
     }
 }
 
@@ -27,6 +34,14 @@ pub struct Group {
 }
 
 impl Group {
+    pub fn enable(&self) -> bool {
+        self.enable.unwrap_or(true)
+    }
+
+    pub fn enable_sni(&self) -> bool {
+        self.enable_sni.unwrap_or(false)
+    }
+
     pub fn new(name: &str, dns: Vec<Dns>) -> Self {
         Self {
             name: name.to_string(),
@@ -36,13 +51,12 @@ impl Group {
         }
     }
 
-    pub fn dns(&mut self) -> Option<&mut Vec<Dns>> {
-        if let Some(enable) = self.enable.or(Some(true)) {
-            if enable && !self.dns.is_empty() {
-                return Some(self.dns.as_mut());
-            }
-        }
-        None
+    pub fn dns(self) -> Vec<Dns> {
+        self.dns
+    }
+
+    pub fn dns_mut(&mut self) -> &mut Vec<Dns> {
+        self.dns.as_mut()
     }
 }
 
@@ -56,6 +70,14 @@ pub struct Dns {
 }
 
 impl Dns {
+    pub fn enable(&self) -> bool {
+        self.enable.unwrap_or(true)
+    }
+
+    pub fn enable_sni(&self) -> bool {
+        self.enable_sni.unwrap_or(false)
+    }
+
     pub fn new(hostname: &str) -> Self {
         Self {
             enable: None,
@@ -66,20 +88,15 @@ impl Dns {
         }
     }
 
-    pub fn hostname(&self) -> Option<&str> {
-        if let Some(enable) = self.enable.or(Some(true)) {
-            if enable && !self.hostname.is_empty() {
-                return Some(&self.hostname);
-            }
-        }
-        None
+    pub fn hostname(&self) -> String {
+        self.hostname.clone()
     }
 
-    pub fn address(&self) -> &Option<String> {
-        &self.address
+    pub fn address(&self) -> Option<&str> {
+        self.address.as_deref()
     }
 
-    pub fn address_mut(&mut self, address: String) {
+    pub fn set_address(&mut self, address: String) {
         self.address = Some(address);
     }
 }
@@ -136,12 +153,12 @@ impl Default for Config {
                 Group::new(
                     "Wikipedia",
                     [
-                        "wikipedia.org",
                         "zh.wikipedia.org",
                         "en.wikipedia.org",
                         "wikimedia.org",
                         "login.wikimedia.org",
                         "upload.wikimedia.org",
+                        "maps.wikimedia.org",
                     ]
                     .into_iter()
                     .map(Dns::new)
@@ -153,6 +170,7 @@ impl Default for Config {
                         "twitch.tv",
                         "www.twitch.tv",
                         "static.twitchcdn.net",
+                        "gql.twitch.tv",
                     ]
                     .into_iter()
                     .map(Dns::new)

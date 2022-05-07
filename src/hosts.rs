@@ -1,7 +1,7 @@
 use crate::dirs::hosts_path;
 use crate::utils::{read_to_string, write};
 
-pub async fn edit_hosts(hostnames: Vec<&str>) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn edit_hosts(hostnames: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
     let hosts_path = hosts_path().ok_or("hosts file not found")?;
 
     let mut hosts_string = read_to_string(&hosts_path).await?;
@@ -13,7 +13,7 @@ pub async fn edit_hosts(hostnames: Vec<&str>) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-fn gen_hosts(old_hosts: &str, hostnames: Vec<&str>) -> String {
+fn gen_hosts(old_hosts: &str, hostnames: &[&str]) -> String {
     let mut is_will_change = false;
     let flag = "# Auto Generate by disable_sni_reverse_proxy";
 
@@ -64,6 +64,6 @@ fn gen_hosts_is_ok() {
 127.0.0.1\thostname1
 127.0.0.1\thostname2
 # Auto Generate by disable_sni_reverse_proxy";
-    assert_eq!(gen_hosts(old_hosts, hostnames.clone()), new_hosts);
-    assert_eq!(gen_hosts(new_hosts, hostnames.clone()), new_hosts);
+    assert_eq!(gen_hosts(old_hosts, &hostnames), new_hosts);
+    assert_eq!(gen_hosts(new_hosts, &hostnames), new_hosts);
 }

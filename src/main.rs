@@ -1,15 +1,18 @@
+#![feature(async_closure)]
 use std::{
+    cell::Cell,
     env,
     net::{IpAddr, SocketAddr},
 };
 
 use async_ctrlc::CtrlC;
 use config::Config;
+use once_cell::sync::OnceCell;
 use reqwest::Client;
 use rustls::ClientConfig as TlsConfig;
 use warp::{Filter, Rejection, Reply};
 use warp_reverse_proxy::{
-    extract_request_data_filter, proxy_to_and_forward_response, CLIENT as PROXY_CLIENT,
+    extract_request_data_filter, proxy_to_and_forward_response_use_client, with_client,
 };
 
 mod cert;
@@ -18,12 +21,23 @@ mod dirs;
 mod hosts;
 mod utils;
 
+static CLIENT_ENABLE_SNI: OnceCell<Client> = OnceCell::new();
+static CLIENT_DISABLE_SNI: OnceCell<Client> = OnceCell::new();
+static mut HOSTS_ENABLE_SNI: Vec<String> = Vec::new();
+static mut HOSTS_DISABLE_SNI: Vec<String> = Vec::new();
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_logger();
 
-    let mut disable_sni_reverse_proxy_client_builder =
-        Client::builder().use_preconfigured_tls(tls_config());
+    let tls_cnf = tls_config();
+
+    let mut tls_cnf_disable_sni = tls_cnf.clone();
+    tls_cnf_disable_sni.enable_sni = false;
+
+    let client_builder = Cell::new(Client::builder().use_preconfigured_tls(tls_cnf));
+    let client_builder_disable_sni =
+        Cell::new(Client::builder().use_preconfigured_tls(tls_cnf_disable_sni));
 
     let mut config = Config::from_file().await?;
 
@@ -31,48 +45,86 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     config.update_file().await?;
 
-    let mut alt_dnsname_vec = Vec::new();
-
-    if let Some(group) = config.group() {
-        for g in group {
-            if let Some(dns) = g.dns() {
-                for d in dns {
-                    if let Some(hostname) = d.hostname() {
-                        if let Some(address) = d.address() {
-                            if let Ok(addr) = address.parse::<IpAddr>() {
-                                alt_dnsname_vec.push(hostname);
-                                disable_sni_reverse_proxy_client_builder =
-                                    disable_sni_reverse_proxy_client_builder
-                                        .resolve(hostname, SocketAddr::new(addr, 443));
+    if config.enable() {
+        let config_enable_sni = config.enable_sni();
+        config.group().into_iter().for_each(|group| {
+            if group.enable() {
+                let group_enable_sni = group.enable_sni();
+                group.dns().into_iter().for_each(|dns| {
+                    if dns.enable() {
+                        let dns_enable_sni = dns.enable_sni();
+                        if let Some(Ok(addr)) =
+                            dns.address().map(|address| address.parse::<IpAddr>())
+                        {
+                            if config_enable_sni || group_enable_sni || dns_enable_sni {
+                                unsafe {
+                                    HOSTS_ENABLE_SNI.push(dns.hostname());
+                                }
+                                client_builder.set(
+                                    client_builder
+                                        .take()
+                                        .resolve(&dns.hostname(), SocketAddr::new(addr, 443)),
+                                );
+                            } else {
+                                unsafe {
+                                    HOSTS_DISABLE_SNI.push(dns.hostname());
+                                }
+                                client_builder_disable_sni.set(
+                                    client_builder_disable_sni
+                                        .take()
+                                        .resolve(&dns.hostname(), SocketAddr::new(addr, 443)),
+                                );
                             }
-                        }
+                        };
                     }
-                }
+                })
             }
-        }
+        })
     }
 
-    let certificate = cert::generate(&alt_dnsname_vec).await?;
+    let host_all = unsafe {
+        HOSTS_DISABLE_SNI
+            .iter()
+            .chain(HOSTS_ENABLE_SNI.iter())
+            .map(AsRef::as_ref)
+            .collect::<Vec<&str>>()
+    };
 
-    hosts::edit_hosts(alt_dnsname_vec).await?;
+    let certificate = cert::generate(&host_all).await?;
 
-    let disable_sni_reverse_proxy_client = disable_sni_reverse_proxy_client_builder.build()?;
+    hosts::edit_hosts(&host_all).await?;
 
-    PROXY_CLIENT
-        .set(disable_sni_reverse_proxy_client)
-        .expect("error on proxy client set");
-
-    let proxy = warp::any()
-        .and(warp::host::optional())
-        .and_then(extract_host_from_authority)
+    let reverse_proxy_enable_sni = exact_hosts(unsafe { HOSTS_ENABLE_SNI.as_ref() })
         .map(|host: String| (format!("https://{}", host), String::new()))
         .untuple_one()
         .and(extract_request_data_filter())
-        .and_then(proxy_to_and_forward_response)
-        .recover(handle_error)
-        .with(warp::log("proxy"));
+        .and(with_client(CLIENT_ENABLE_SNI.get_or_init(|| {
+            client_builder
+                .take()
+                .build()
+                .expect("cannot get client which one enable sni")
+        })))
+        .and_then(proxy_to_and_forward_response_use_client)
+        .with(warp::log("reverse_proxy_enable_sni"));
 
-    let (addr, server) = warp::serve(proxy)
+    let reverse_proxy_disable_sni = exact_hosts(unsafe { HOSTS_DISABLE_SNI.as_ref() })
+        .map(|host: String| (format!("https://{}", host), String::new()))
+        .untuple_one()
+        .and(extract_request_data_filter())
+        .and(with_client(CLIENT_DISABLE_SNI.get_or_init(|| {
+            client_builder_disable_sni
+                .take()
+                .build()
+                .expect("cannot get client which one disable sni")
+        })))
+        .and_then(proxy_to_and_forward_response_use_client)
+        .with(warp::log("reverse_proxy_disable_sni"));
+
+    let router = reverse_proxy_disable_sni
+        .or(reverse_proxy_enable_sni)
+        .recover(handle_error);
+
+    let (addr, server) = warp::serve(router)
         .tls()
         .key(certificate.key)
         .cert(certificate.cert)
@@ -80,7 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(ctrlc) = CtrlC::new() {
                 tracing::info!("pressed CtrlC to shutdown");
                 ctrlc.await;
-                if let Err(e) = hosts::edit_hosts(Vec::new()).await {
+                if let Err(e) = hosts::edit_hosts(&Vec::new()).await {
                     tracing::error!("failed to restore hosts {:?}", e);
                 } else {
                     tracing::info!("graceful shutdown")
@@ -113,26 +165,30 @@ fn tls_config() -> TlsConfig {
         )
     }));
 
-    let mut tls = rustls::ClientConfig::builder()
+    rustls::ClientConfig::builder()
         .with_safe_defaults()
         .with_root_certificates(root_store)
-        .with_no_client_auth();
-
-    tls.enable_sni = false;
-
-    tls
+        .with_no_client_auth()
 }
 
-async fn extract_host_from_authority(
-    auth: Option<warp::host::Authority>,
-) -> Result<String, Rejection> {
-    #[derive(Debug)]
-    struct HostNotFound {}
+fn extract_host() -> impl Filter<Extract = (String,), Error = Rejection> + Clone {
+    warp::host::optional().and_then(async move |auth: Option<warp::host::Authority>| {
+        auth.map(|auth| auth.host().to_string())
+            .ok_or_else(warp::reject)
+    })
+}
 
-    impl warp::reject::Reject for HostNotFound {}
-
-    auth.map(|auth| auth.host().to_string())
-        .ok_or_else(|| warp::reject::custom(HostNotFound {}))
+#[allow(clippy::needless_lifetimes)]
+fn exact_hosts<'a>(
+    expected_hosts: &'a [String],
+) -> impl Filter<Extract = (String,), Error = Rejection> + Clone + 'a {
+    extract_host().and_then(async move |host: String| {
+        if expected_hosts.contains(&host) {
+            Ok(host)
+        } else {
+            Err(warp::reject())
+        }
+    })
 }
 
 async fn handle_error(rejection: Rejection) -> Result<impl Reply, Rejection> {

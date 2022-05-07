@@ -12,15 +12,24 @@ lazy_static! {
 
 impl Dns {
     pub async fn lookup(&mut self) -> Result<(), Error> {
-        if self.address().is_none() {
-            if let Some(hostname) = self.hostname() {
-                tracing::info!("lookup {}", hostname);
-                if let Some(address) =
-                    capture_ip_from_html_plain(ip_lookup_on_ipaddress_com(hostname).await?)
-                {
-                    self.address_mut(address);
+        let hostname = self.hostname();
+        if self.enable() {
+            if self.address().is_none() {
+                tracing::info!(target: "lookup", "lookup {} ...", hostname);
+                match capture_ip_from_html_plain(&ip_lookup_on_ipaddress_com(&hostname).await?) {
+                    Some(address) => {
+                        tracing::info!("{} -> {}", hostname, &address);
+                        self.set_address(address)
+                    }
+                    None => {
+                        tracing::warn!(target: "lookup","{} not found", hostname);
+                    }
                 }
+            } else {
+                tracing::info!(target: "lookup","{} had address", hostname);
             }
+        } else {
+            tracing::info!(target: "lookup","disable {}", hostname);
         }
         Ok(())
     }
@@ -28,8 +37,8 @@ impl Dns {
 
 impl Group {
     pub async fn lookup(&mut self) -> Result<(), Error> {
-        if let Some(dns) = self.dns() {
-            join_all(dns.iter_mut().map(|d| d.lookup()))
+        if self.enable() {
+            join_all(self.dns_mut().iter_mut().map(|dns| dns.lookup()))
                 .await
                 .into_iter()
                 .try_for_each(|r| r)?
@@ -40,8 +49,8 @@ impl Group {
 
 impl Config {
     pub async fn lookup(&mut self) -> Result<(), Error> {
-        if let Some(group) = self.group() {
-            join_all(group.iter_mut().map(|g| g.lookup()))
+        if self.enable() {
+            join_all(self.group_mut().iter_mut().map(|group| group.lookup()))
                 .await
                 .into_iter()
                 .try_for_each(|r| r)?
@@ -50,8 +59,8 @@ impl Config {
     }
 }
 
-fn capture_ip_from_html_plain(html: String) -> Option<String> {
-    Some(RE_CAPTURE_IP.captures(&html)?.get(1)?.as_str().to_string())
+fn capture_ip_from_html_plain(html: &str) -> Option<String> {
+    Some(RE_CAPTURE_IP.captures(html)?.get(1)?.as_str().to_string())
 }
 
 async fn ip_lookup_on_ipaddress_com(host: &str) -> Result<String, Error> {
@@ -70,11 +79,11 @@ fn regex_from_html_get_ip_is_ok() {
     let html =
         r#"<a href="https://www.ipaddress.com/ipv4/220.181.38.251">220.181.38.251</a>"#.to_string();
     assert_eq!(
-        capture_ip_from_html_plain(html),
+        capture_ip_from_html_plain(&html),
         Some("220.181.38.251".to_string())
     );
     let html = r#"<a href="https://www.ipaddress.com/ipv4/">"#.to_string();
-    assert_eq!(capture_ip_from_html_plain(html), None);
+    assert_eq!(capture_ip_from_html_plain(&html), None);
 }
 
 #[cfg(test)]
@@ -112,9 +121,9 @@ mod tests {
             vec![Dns::new("duckduckgo.com"), Dns::new("duckduckgo.com")],
         );
         group.lookup().await.unwrap();
-        if let Some(dns) = group.dns() {
-            dns.iter()
-                .for_each(|d| ip_ok(d.address().as_ref().unwrap()))
-        }
+        group
+            .dns()
+            .iter()
+            .for_each(|d| ip_ok(d.address().as_ref().unwrap()))
     }
 }
