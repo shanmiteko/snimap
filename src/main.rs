@@ -30,12 +30,12 @@ static mut HOSTS_DISABLE_SNI: Vec<String> = Vec::new();
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_logger();
 
-    let tls_cnf = tls_config();
+    let tls_cnf_enable_sni = tls_config();
 
-    let mut tls_cnf_disable_sni = tls_cnf.clone();
+    let mut tls_cnf_disable_sni = tls_cnf_enable_sni.clone();
     tls_cnf_disable_sni.enable_sni = false;
 
-    let client_builder = Cell::new(Client::builder().use_preconfigured_tls(tls_cnf));
+    let client_builder = Cell::new(Client::builder().use_preconfigured_tls(tls_cnf_enable_sni));
     let client_builder_disable_sni =
         Cell::new(Client::builder().use_preconfigured_tls(tls_cnf_disable_sni));
 
@@ -105,7 +105,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .expect("cannot get client which one enable sni")
         })))
         .and_then(proxy_to_and_forward_response_use_client)
-        .with(warp::log("reverse_proxy_enable_sni"));
+        .with(warp::log::custom(|info| {
+            tracing::info!(
+                target: "enable_sni",
+                "{} \"{} {:?} {}\" {:?}",
+                info.status().as_u16(),
+                info.method(),
+                info.referer(),
+                info.path(),
+                info.elapsed()
+            )
+        }));
 
     let reverse_proxy_disable_sni = exact_hosts(unsafe { HOSTS_DISABLE_SNI.as_ref() })
         .map(|host: String| (format!("https://{}", host), String::new()))
@@ -118,7 +128,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .expect("cannot get client which one disable sni")
         })))
         .and_then(proxy_to_and_forward_response_use_client)
-        .with(warp::log("reverse_proxy_disable_sni"));
+        .with(warp::log::custom(|info| {
+            tracing::info!(
+                target: "disable_sni",
+                "{} \"{} {:?} {}\" {:?}",
+                info.status().as_u16(),
+                info.method(),
+                info.referer(),
+                info.path(),
+                info.elapsed()
+            )
+        }));
 
     let router = reverse_proxy_disable_sni
         .or(reverse_proxy_enable_sni)
@@ -130,19 +150,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .cert(certificate.cert)
         .bind_with_graceful_shutdown(([127, 0, 0, 1], 443), async {
             if let Ok(ctrlc) = CtrlC::new() {
-                tracing::info!("pressed CtrlC to shutdown");
+                tracing::info!(target: "reverse_proxy", "pressed CtrlC to shutdown");
                 ctrlc.await;
                 if let Err(e) = hosts::edit_hosts(&Vec::new()).await {
-                    tracing::error!("failed to restore hosts {:?}", e);
+                    tracing::error!(target: "reverse_proxy", "failed to restore hosts {:?}", e);
                 } else {
-                    tracing::info!("graceful shutdown")
+                    tracing::info!(target: "reverse_proxy", "graceful shutdown")
                 }
             } else {
-                tracing::error!("ctrlc hook failed")
+                tracing::error!(target: "reverse_proxy", "ctrlc hook failed")
             }
         });
 
-    tracing::info!("listening on https://{}", addr);
+    tracing::info!(target: "reverse_proxy", "listening on https://{}", addr);
 
     server.await;
 
