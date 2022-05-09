@@ -1,11 +1,13 @@
-use rcgen::{Certificate, CertificateParams, DistinguishedName, DnType, KeyPair, SanType};
+use rcgen::{
+    Certificate, CertificateParams, DistinguishedName, DnType, KeyPair, RcgenError, SanType,
+};
 
 pub struct Cert {
     pub cert: String,
     pub key: String,
 }
 
-pub async fn generate(alt_dnsname: &[&str]) -> Result<Cert, Box<dyn std::error::Error>> {
+pub async fn generate(alt_dnsname: &[&str]) -> Result<Cert, RcgenError> {
     let ca = Certificate::from_params(CertificateParams::from_ca_cert_pem(
         include_str!("../private/ca.pem"),
         KeyPair::from_pem(include_str!("../private/cakey.pem"))?,

@@ -170,8 +170,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn init_logger() {
-    env::set_var("RUST_APP_LOG", "INFO");
-    pretty_env_logger::init_custom_env("RUST_APP_LOG");
+    let log_name = "RUST_APP_LOG";
+    if env::var(log_name).is_err() {
+        env::set_var(log_name, "INFO");
+    }
+    pretty_env_logger::init_custom_env(log_name);
 }
 
 fn tls_config() -> TlsConfig {
