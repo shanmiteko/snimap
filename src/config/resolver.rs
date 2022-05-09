@@ -1,14 +1,30 @@
+use std::collections::HashMap;
+
 use futures::future::join_all;
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use regex::Regex;
-use reqwest::{Client, Error};
+use reqwest::{Client, ClientBuilder, Error};
 
 use super::format::{Config, Dns, Group};
 
-lazy_static! {
-    static ref CLIENT: Client = Client::new();
-    static ref RE_CAPTURE_IP: Regex = Regex::new(r"ipaddress.com/ipv4/((\d+\.){3}\d+)").unwrap();
-}
+static LOOKUP_CLIENT: Lazy<Client> = Lazy::new(|| {
+    ClientBuilder::new()
+        .default_headers(
+            (&HashMap::from([
+                ("Referer", "https://www.ipaddress.com/ip-lookup"),
+                ("Accept-Encoding", "br"),
+            ])
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect::<HashMap<String, String>>())
+                .try_into()
+                .unwrap(),
+        )
+        .build()
+        .unwrap()
+});
+static RE_CAPTURE_IP: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"ipaddress.com/ipv4/((\d+\.){3}\d+)").unwrap());
 
 impl Dns {
     pub async fn lookup(&mut self) -> Result<(), Error> {
@@ -64,7 +80,7 @@ fn capture_ip_from_html_plain(html: &str) -> Option<String> {
 }
 
 async fn ip_lookup_on_ipaddress_com(host: &str) -> Result<String, Error> {
-    CLIENT
+    LOOKUP_CLIENT
         .post("https://www.ipaddress.com/ip-lookup")
         .form(&[("host", host)])
         .send()
@@ -99,19 +115,22 @@ mod tests {
 
     fn ip_ok(ip: &str) {
         assert!(ip.contains('.'));
-        assert!(ip
-            .split('.')
-            .try_for_each(|ip| ip.parse::<u8>().map(|_| ()))
-            .is_ok());
+        ip.split('.')
+            .try_for_each(|ip: &str| {
+                if let Err(e) = ip.parse::<u8>() {
+                    eprintln!("{} {}", ip, e);
+                    return Err(());
+                }
+                Ok(())
+            })
+            .expect("cannot paser to u8")
     }
 
     #[tokio::test]
     async fn struct_dns_can_lookup_host() {
         let mut dns = Dns::new("duckduckgo.com");
         dns.lookup().await.unwrap();
-        if let Some(addr) = dns.address() {
-            ip_ok(addr);
-        }
+        ip_ok(dns.address().as_ref().unwrap());
     }
 
     #[tokio::test]
