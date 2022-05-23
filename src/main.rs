@@ -1,9 +1,5 @@
 #![feature(async_closure)]
-use std::{
-    cell::Cell,
-    env,
-    net::{IpAddr, SocketAddr},
-};
+use std::{cell::Cell, env};
 
 use async_ctrlc::CtrlC;
 use config::Config;
@@ -14,6 +10,8 @@ use warp::{Filter, Rejection, Reply};
 use warp_reverse_proxy::{
     extract_request_data_filter, proxy_to_and_forward_response_use_client, with_client,
 };
+
+use crate::config::{ConfigMap, ConfigMapVal, Lookup};
 
 mod cert;
 mod config;
@@ -45,54 +43,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     config.update_file().await?;
 
-    if config.enable() {
-        let config_enable_sni = config.enable_sni();
-        config.group().into_iter().for_each(|group| {
-            if group.enable() {
-                let group_enable_sni = group.enable_sni();
-                group.dns().into_iter().for_each(|dns| {
-                    if dns.enable() {
-                        let dns_enable_sni = dns.enable_sni();
-                        if let Some(Ok(addr)) =
-                            dns.address().map(|address| address.parse::<IpAddr>())
-                        {
-                            if config_enable_sni || group_enable_sni || dns_enable_sni {
-                                unsafe {
-                                    HOSTS_ENABLE_SNI.push(dns.hostname());
-                                }
-                                client_builder.set(
-                                    client_builder
-                                        .take()
-                                        .resolve(&dns.hostname(), SocketAddr::new(addr, 443)),
-                                );
-                            } else {
-                                unsafe {
-                                    HOSTS_DISABLE_SNI.push(dns.hostname());
-                                }
-                                client_builder_disable_sni.set(
-                                    client_builder_disable_sni
-                                        .take()
-                                        .resolve(&dns.hostname(), SocketAddr::new(addr, 443)),
-                                );
-                            }
-                        };
-                    }
-                })
+    let config_map: ConfigMap = config.into();
+
+    let mut all_hostname: Vec<&str> = vec![];
+
+    config_map.iter().for_each(|(k, v)| {
+        all_hostname.push(k.as_str());
+        let ConfigMapVal { address, sni } = v;
+        match sni {
+            Some(_) => {
+                client_builder.set(client_builder.take().resolve(k, *address));
+                unsafe { HOSTS_ENABLE_SNI.push(k.to_string()) }
             }
-        })
-    }
+            None => {
+                client_builder_disable_sni.set(client_builder.take().resolve(k, *address));
+                unsafe { HOSTS_DISABLE_SNI.push(k.to_string()) }
+            }
+        }
+    });
 
-    let host_all = unsafe {
-        HOSTS_DISABLE_SNI
-            .iter()
-            .chain(HOSTS_ENABLE_SNI.iter())
-            .map(AsRef::as_ref)
-            .collect::<Vec<&str>>()
-    };
+    let certificate = cert::generate(&all_hostname).await?;
 
-    let certificate = cert::generate(&host_all).await?;
-
-    hosts::edit_hosts(&host_all).await?;
+    hosts::edit_hosts(&all_hostname).await?;
 
     let reverse_proxy_enable_sni = exact_hosts(unsafe { HOSTS_ENABLE_SNI.as_ref() })
         .map(|host: String| (format!("https://{}", host), String::new()))

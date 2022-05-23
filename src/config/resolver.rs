@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use async_trait::async_trait;
 use futures::future::join_all;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -23,16 +24,22 @@ static LOOKUP_CLIENT: Lazy<Client> = Lazy::new(|| {
         .build()
         .unwrap()
 });
+
 static RE_CAPTURE_IP: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"ipaddress.com/ipv4/((\d+\.){3}\d+)").unwrap());
 
-impl Dns {
-    pub async fn lookup(&mut self) -> Result<(), Error> {
-        let hostname = self.hostname();
-        if self.enable() {
-            if self.address().is_none() {
+#[async_trait]
+pub trait Lookup {
+    async fn lookup(&mut self) -> Result<(), Error>;
+}
+
+#[async_trait]
+impl Lookup for Dns {
+    async fn lookup(&mut self) -> Result<(), Error> {
+        if let Some(hostname) = self.hostname_ref() {
+            if self.address_ref().is_none() {
                 tracing::info!(target: "lookup", "lookup {} ...", hostname);
-                match capture_ip_from_html_plain(&ip_lookup_on_ipaddress_com(&hostname).await?) {
+                match capture_ip_from_html_plain(&ip_lookup_on_ipaddress_com(hostname).await?) {
                     Some(address) => {
                         tracing::info!("{} -> {}", hostname, &address);
                         self.set_address(address)
@@ -44,17 +51,16 @@ impl Dns {
             } else {
                 tracing::info!(target: "lookup","{} had address", hostname);
             }
-        } else {
-            tracing::info!(target: "lookup","disable {}", hostname);
         }
         Ok(())
     }
 }
 
-impl Group {
-    pub async fn lookup(&mut self) -> Result<(), Error> {
-        if self.enable() {
-            join_all(self.dns_mut().iter_mut().map(|dns| dns.lookup()))
+#[async_trait]
+impl Lookup for Group {
+    async fn lookup(&mut self) -> Result<(), Error> {
+        if let Some(dns) = self.dns_mut() {
+            join_all(dns.iter_mut().map(|dns| dns.lookup()))
                 .await
                 .into_iter()
                 .try_for_each(|r| r)?
@@ -63,10 +69,11 @@ impl Group {
     }
 }
 
-impl Config {
-    pub async fn lookup(&mut self) -> Result<(), Error> {
-        if self.enable() {
-            join_all(self.group_mut().iter_mut().map(|group| group.lookup()))
+#[async_trait]
+impl Lookup for Config {
+    async fn lookup(&mut self) -> Result<(), Error> {
+        if let Some(dns) = self.group_mut() {
+            join_all(dns.iter_mut().map(|dns| dns.lookup()))
                 .await
                 .into_iter()
                 .try_for_each(|r| r)?
@@ -111,6 +118,7 @@ async fn ip_lookup_on_ipaddress_com_is_ok() {
 
 #[cfg(test)]
 mod tests {
+    use super::Lookup;
     use crate::config::format::{Dns, Group};
 
     fn ip_ok(ip: &str) {
@@ -130,7 +138,7 @@ mod tests {
     async fn struct_dns_can_lookup_host() {
         let mut dns = Dns::new("duckduckgo.com");
         dns.lookup().await.unwrap();
-        ip_ok(dns.address().as_ref().unwrap());
+        ip_ok(dns.address_ref().unwrap());
     }
 
     #[tokio::test]
@@ -141,8 +149,9 @@ mod tests {
         );
         group.lookup().await.unwrap();
         group
-            .dns()
+            .dns_mut()
+            .unwrap()
             .iter()
-            .for_each(|d| ip_ok(d.address().as_ref().unwrap()))
+            .for_each(|d| ip_ok(d.address_ref().as_ref().unwrap()))
     }
 }

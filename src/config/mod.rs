@@ -6,7 +6,8 @@ use toml::{de::Error as TomlDeError, ser::Error as TomlSerError};
 use crate::dirs;
 use crate::utils;
 
-pub use self::format::Config;
+pub use self::format::*;
+pub use self::resolver::*;
 
 mod format;
 mod resolver;
