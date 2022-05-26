@@ -29,13 +29,13 @@ static RE_CAPTURE_IP: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"ipaddress.com/ipv4/((\d+\.){3}\d+)").unwrap());
 
 #[async_trait]
-pub trait Lookup {
-    async fn lookup(&mut self) -> Result<(), Error>;
+pub trait DnsResolve {
+    async fn resolve(&mut self) -> Result<(), Error>;
 }
 
 #[async_trait]
-impl Lookup for Dns {
-    async fn lookup(&mut self) -> Result<(), Error> {
+impl DnsResolve for Dns {
+    async fn resolve(&mut self) -> Result<(), Error> {
         if let Some(hostname) = self.hostname_ref() {
             if self.address_ref().is_none() {
                 tracing::info!(target: "lookup", "lookup {} ...", hostname);
@@ -57,10 +57,10 @@ impl Lookup for Dns {
 }
 
 #[async_trait]
-impl Lookup for Group {
-    async fn lookup(&mut self) -> Result<(), Error> {
+impl DnsResolve for Group {
+    async fn resolve(&mut self) -> Result<(), Error> {
         if let Some(dns) = self.dns_mut() {
-            join_all(dns.iter_mut().map(|dns| dns.lookup()))
+            join_all(dns.iter_mut().map(|dns| dns.resolve()))
                 .await
                 .into_iter()
                 .try_for_each(|r| r)?
@@ -70,10 +70,10 @@ impl Lookup for Group {
 }
 
 #[async_trait]
-impl Lookup for Config {
-    async fn lookup(&mut self) -> Result<(), Error> {
+impl DnsResolve for Config {
+    async fn resolve(&mut self) -> Result<(), Error> {
         if let Some(dns) = self.group_mut() {
-            join_all(dns.iter_mut().map(|dns| dns.lookup()))
+            join_all(dns.iter_mut().map(|dns| dns.resolve()))
                 .await
                 .into_iter()
                 .try_for_each(|r| r)?
@@ -98,7 +98,7 @@ async fn ip_lookup_on_ipaddress_com(host: &str) -> Result<String, Error> {
 
 #[cfg(test)]
 #[test]
-fn regex_from_html_get_ip_is_ok() {
+fn regex_from_html_get_ip() {
     let html =
         r#"<a href="https://www.ipaddress.com/ipv4/220.181.38.251">220.181.38.251</a>"#.to_string();
     assert_eq!(
@@ -110,15 +110,15 @@ fn regex_from_html_get_ip_is_ok() {
 }
 
 #[cfg(test)]
-#[tokio::test]
-async fn ip_lookup_on_ipaddress_com_is_ok() {
+#[actix_web::test]
+async fn test_ip_lookup_on_ipaddress_com() {
     let html = ip_lookup_on_ipaddress_com("duckduckgo.com").await.unwrap();
     assert!(!html.is_empty())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Lookup;
+    use super::DnsResolve;
     use crate::config::format::{Dns, Group};
 
     fn ip_ok(ip: &str) {
@@ -134,20 +134,22 @@ mod tests {
             .expect("cannot paser to u8")
     }
 
-    #[tokio::test]
-    async fn struct_dns_can_lookup_host() {
+    #[actix_web::test]
+    async fn struct_dns_can_resolve() {
         let mut dns = Dns::new("duckduckgo.com");
-        dns.lookup().await.unwrap();
+        dns.resolve().await.unwrap();
         ip_ok(dns.address_ref().unwrap());
     }
 
-    #[tokio::test]
-    async fn struct_group_can_lookup_host() {
+    #[actix_web::test]
+    async fn struct_group_can_resolve() {
         let mut group = Group::new(
             "name",
+            None,
+            None,
             vec![Dns::new("duckduckgo.com"), Dns::new("duckduckgo.com")],
         );
-        group.lookup().await.unwrap();
+        group.resolve().await.unwrap();
         group
             .dns_mut()
             .unwrap()

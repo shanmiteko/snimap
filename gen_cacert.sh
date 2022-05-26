@@ -8,7 +8,7 @@ mkdir -p "$cert_dir"
 openssl genpkey -algorithm RSA -out "$cert_dir/cakey.pem"
 
 openssl req -x509 -key "$cert_dir/cakey.pem" -out "$cert_dir/ca.pem" \
-    -days 3650 \
+    -days 36500 \
     -subj "/CN=$name" \
     -config <(
         cat <<END

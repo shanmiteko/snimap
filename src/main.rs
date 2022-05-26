@@ -1,142 +1,87 @@
 #![feature(async_closure)]
-use std::{cell::Cell, env};
+use std::{env, sync::Arc};
 
-use async_ctrlc::CtrlC;
-use config::Config;
-use once_cell::sync::OnceCell;
-use reqwest::Client;
-use rustls::ClientConfig as TlsConfig;
-use warp::{Filter, Rejection, Reply};
-use warp_reverse_proxy::{
-    extract_request_data_filter, proxy_to_and_forward_response_use_client, with_client,
-};
+use actix_tls::connect::{Connector as ActixTlsConnector, Resolver as ActixTlsResolver};
+use actix_web::{middleware, web, App, HttpServer};
+use awc::{Client as AwcClient, Connector as AwcConnector};
+use config::{Config, ConfigMap};
+use handler::{reverse_proxy, ClientPair};
+use resolver::LocalHosts;
+use tlscert::{cert_generate, rustls_client_config, rustls_server_config, DisableSni};
+use utils::edit_hosts;
 
-use crate::config::{ConfigMap, ConfigMapVal, Lookup};
+use crate::config::DnsResolve;
 
-mod cert;
 mod config;
 mod dirs;
-mod hosts;
+mod handler;
+mod resolver;
+mod tlscert;
 mod utils;
 
-static CLIENT_ENABLE_SNI: OnceCell<Client> = OnceCell::new();
-static CLIENT_DISABLE_SNI: OnceCell<Client> = OnceCell::new();
-static mut HOSTS_ENABLE_SNI: Vec<String> = Vec::new();
-static mut HOSTS_DISABLE_SNI: Vec<String> = Vec::new();
-
-#[tokio::main]
+#[actix_web::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_logger();
 
-    let tls_cnf_enable_sni = tls_config();
-
-    let mut tls_cnf_disable_sni = tls_cnf_enable_sni.clone();
-    tls_cnf_disable_sni.enable_sni = false;
-
-    let client_builder = Cell::new(Client::builder().use_preconfigured_tls(tls_cnf_enable_sni));
-    let client_builder_disable_sni =
-        Cell::new(Client::builder().use_preconfigured_tls(tls_cnf_disable_sni));
-
     let mut config = Config::from_file().await?;
 
-    config.lookup().await?;
+    config.resolve().await?;
 
     config.update_file().await?;
 
-    let config_map: ConfigMap = config.into();
-
     let mut all_hostname: Vec<&str> = vec![];
 
-    config_map.iter().for_each(|(k, v)| {
-        all_hostname.push(k.as_str());
-        let ConfigMapVal { address, sni } = v;
-        match sni {
-            Some(_) => {
-                client_builder.set(client_builder.take().resolve(k, *address));
-                unsafe { HOSTS_ENABLE_SNI.push(k.to_string()) }
-            }
-            None => {
-                client_builder_disable_sni.set(client_builder.take().resolve(k, *address));
-                unsafe { HOSTS_DISABLE_SNI.push(k.to_string()) }
-            }
-        }
+    let (domain_map, sni_map) = ConfigMap::from(config).split();
+
+    let domain_map_arc = Arc::new(domain_map);
+    let sni_map_data = web::Data::new(sni_map);
+
+    sni_map_data.keys().for_each(|hostname| {
+        all_hostname.push(hostname.as_str());
     });
 
-    let certificate = cert::generate(&all_hostname).await?;
+    edit_hosts(&all_hostname).await?;
 
-    hosts::edit_hosts(&all_hostname).await?;
+    let cert = cert_generate(&all_hostname).await?;
 
-    let reverse_proxy_enable_sni = exact_hosts(unsafe { HOSTS_ENABLE_SNI.as_ref() })
-        .map(|host: String| (format!("https://{}", host), String::new()))
-        .untuple_one()
-        .and(extract_request_data_filter())
-        .and(with_client(CLIENT_ENABLE_SNI.get_or_init(|| {
-            client_builder
-                .take()
-                .build()
-                .expect("cannot get client which one enable sni")
-        })))
-        .and_then(proxy_to_and_forward_response_use_client)
-        .with(warp::log::custom(|info| {
-            tracing::info!(
-                target: "enable_sni",
-                "{} \"{} {:?} {}\" {:?}",
-                info.status().as_u16(),
-                info.method(),
-                info.referer(),
-                info.path(),
-                info.elapsed()
+    HttpServer::new(move || {
+        let client_enable_sni = AwcClient::builder()
+            .connector(
+                AwcConnector::new()
+                    .connector(
+                        ActixTlsConnector::new(ActixTlsResolver::custom(LocalHosts::new(
+                            domain_map_arc.clone(),
+                        )))
+                        .service(),
+                    )
+                    .rustls(Arc::new(rustls_client_config())),
             )
-        }));
+            .finish();
 
-    let reverse_proxy_disable_sni = exact_hosts(unsafe { HOSTS_DISABLE_SNI.as_ref() })
-        .map(|host: String| (format!("https://{}", host), String::new()))
-        .untuple_one()
-        .and(extract_request_data_filter())
-        .and(with_client(CLIENT_DISABLE_SNI.get_or_init(|| {
-            client_builder_disable_sni
-                .take()
-                .build()
-                .expect("cannot get client which one disable sni")
-        })))
-        .and_then(proxy_to_and_forward_response_use_client)
-        .with(warp::log::custom(|info| {
-            tracing::info!(
-                target: "disable_sni",
-                "{} \"{} {:?} {}\" {:?}",
-                info.status().as_u16(),
-                info.method(),
-                info.referer(),
-                info.path(),
-                info.elapsed()
+        let client_disable_sni = AwcClient::builder()
+            .connector(
+                AwcConnector::new()
+                    .connector(
+                        ActixTlsConnector::new(ActixTlsResolver::custom(LocalHosts::new(
+                            domain_map_arc.clone(),
+                        )))
+                        .service(),
+                    )
+                    .rustls(Arc::new(rustls_client_config().disable_sni())),
             )
-        }));
+            .finish();
 
-    let router = reverse_proxy_disable_sni
-        .or(reverse_proxy_enable_sni)
-        .recover(handle_error);
+        let client_pair = web::Data::new(ClientPair::new(client_enable_sni, client_disable_sni));
 
-    let (addr, server) = warp::serve(router)
-        .tls()
-        .key(certificate.key)
-        .cert(certificate.cert)
-        .bind_with_graceful_shutdown(([127, 0, 0, 1], 443), async {
-            if let Ok(ctrlc) = CtrlC::new() {
-                tracing::info!(target: "reverse_proxy", "pressed CtrlC to shutdown");
-                ctrlc.await;
-                if let Err(e) = hosts::edit_hosts(&Vec::new()).await {
-                    tracing::error!(target: "reverse_proxy", "failed to restore hosts {:?}", e);
-                } else {
-                    tracing::info!(target: "reverse_proxy", "graceful shutdown")
-                }
-            } else {
-                tracing::error!(target: "reverse_proxy", "ctrlc hook failed")
-            }
-        });
-
-    tracing::info!(target: "reverse_proxy", "listening on https://{}", addr);
-
-    server.await;
+        App::new()
+            .app_data(sni_map_data.clone())
+            .app_data(client_pair)
+            .wrap(middleware::Logger::new("%{HOST}i \"%r\" %s %b %Dms"))
+            .default_service(web::to(reverse_proxy))
+    })
+    .bind_rustls("127.0.0.1:443", rustls_server_config(cert)?)?
+    .run()
+    .await?;
 
     Ok(())
 }
@@ -147,52 +92,4 @@ fn init_logger() {
         env::set_var(log_name, "INFO");
     }
     pretty_env_logger::init_custom_env(log_name);
-}
-
-fn tls_config() -> TlsConfig {
-    let mut root_store = rustls::RootCertStore::empty();
-
-    root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject,
-            ta.spki,
-            ta.name_constraints,
-        )
-    }));
-
-    rustls::ClientConfig::builder()
-        .with_safe_defaults()
-        .with_root_certificates(root_store)
-        .with_no_client_auth()
-}
-
-fn extract_host() -> impl Filter<Extract = (String,), Error = Rejection> + Clone {
-    warp::host::optional().and_then(async move |auth: Option<warp::host::Authority>| {
-        auth.map(|auth| auth.host().to_string())
-            .ok_or_else(warp::reject)
-    })
-}
-
-#[allow(clippy::needless_lifetimes)]
-fn exact_hosts<'a>(
-    expected_hosts: &'a [String],
-) -> impl Filter<Extract = (String,), Error = Rejection> + Clone + 'a {
-    extract_host().and_then(async move |host: String| {
-        if expected_hosts.contains(&host) {
-            Ok(host)
-        } else {
-            Err(warp::reject())
-        }
-    })
-}
-
-async fn handle_error(rejection: Rejection) -> Result<impl Reply, Rejection> {
-    if let Some(err) = rejection.find::<warp_reverse_proxy::errors::Error>() {
-        match err {
-            warp_reverse_proxy::errors::Error::Request(e) => Ok(format!("reqwest: {:?}", e)),
-            warp_reverse_proxy::errors::Error::HTTP(e) => Ok(format!("warp::http: {:?}", e)),
-        }
-    } else {
-        Err(rejection)
-    }
 }
