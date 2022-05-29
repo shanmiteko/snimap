@@ -3,6 +3,7 @@ use std::{env, sync::Arc};
 
 use actix_tls::connect::{Connector as ActixTlsConnector, Resolver as ActixTlsResolver};
 use actix_web::{middleware, web, App, HttpServer};
+use async_ctrlc::CtrlC;
 use awc::{Client as AwcClient, Connector as AwcConnector};
 use config::{Config, ConfigMap};
 use handler::{reverse_proxy, ClientPair};
@@ -44,7 +45,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cert = cert_generate(&all_hostname).await?;
 
-    HttpServer::new(move || {
+    let client_config_enable_sni = Arc::new(rustls_client_config());
+    let client_config_disable_sni = Arc::new(rustls_client_config().disable_sni());
+
+    let server = HttpServer::new(move || {
         let client_enable_sni = AwcClient::builder()
             .connector(
                 AwcConnector::new()
@@ -54,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         )))
                         .service(),
                     )
-                    .rustls(Arc::new(rustls_client_config())),
+                    .rustls(client_config_enable_sni.clone()),
             )
             .finish();
 
@@ -67,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         )))
                         .service(),
                     )
-                    .rustls(Arc::new(rustls_client_config().disable_sni())),
+                    .rustls(client_config_disable_sni.clone()),
             )
             .finish();
 
@@ -80,14 +84,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .default_service(web::to(reverse_proxy))
     })
     .bind_rustls("127.0.0.1:443", rustls_server_config(cert)?)?
-    .run()
-    .await?;
+    .disable_signals()
+    .run();
+
+    let server_handle = server.handle();
+
+    futures::try_join!(
+        async {
+            CtrlC::new()
+                .expect("Failed to install Ctrl-C handler")
+                .await;
+            server_handle.stop(true).await;
+            edit_hosts(&Vec::new()).await?;
+            Ok::<(), Box<dyn std::error::Error>>(())
+        },
+        async {
+            server.await?;
+            Ok::<(), Box<dyn std::error::Error>>(())
+        }
+    )?;
 
     Ok(())
 }
 
 fn init_logger() {
-    let log_name = "RUST_APP_LOG";
+    let log_name = "RUST_LOG";
     if env::var(log_name).is_err() {
         env::set_var(log_name, "INFO");
     }

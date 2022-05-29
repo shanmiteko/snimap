@@ -97,7 +97,7 @@ impl Group {
             name: name.to_string(),
             enable: None,
             enable_sni,
-            sni: sni.map(|s| s.to_string()),
+            sni: sni.map(ToString::to_string),
             dnses,
         }
     }
@@ -251,7 +251,7 @@ impl Default for Config {
                     "links.duckduckgo.com",
                 ]
                 .into_iter()
-                .map(|s| Dns::new(s))
+                .map(Dns::new)
                 .collect(),
             ),
             Group::new(
@@ -274,7 +274,7 @@ impl Default for Config {
                     "user-images.githubusercontent.com",
                 ]
                 .into_iter()
-                .map(|s| Dns::new(s))
+                .map(Dns::new)
                 .collect(),
             ),
             Group::new(
@@ -288,7 +288,7 @@ impl Default for Config {
                     "skyapi.onedrive.live.com",
                 ]
                 .into_iter()
-                .map(|s| Dns::new(s))
+                .map(Dns::new)
                 .collect(),
             ),
             Group::new(
@@ -304,7 +304,7 @@ impl Default for Config {
                     "maps.wikimedia.org",
                 ]
                 .into_iter()
-                .map(|s| Dns::new(s))
+                .map(Dns::new)
                 .collect(),
             ),
             Group::new(
@@ -313,7 +313,7 @@ impl Default for Config {
                 Some("fanbox.cc"),
                 ["pixiv.net", "www.pixiv.net"]
                     .into_iter()
-                    .map(|s| Dns::new(s))
+                    .map(Dns::new)
                     .collect(),
             ),
             Group::new(
@@ -327,7 +327,7 @@ impl Default for Config {
                     "gql.twitch.tv",
                 ]
                 .into_iter()
-                .map(|s| Dns::new(s))
+                .map(Dns::new)
                 .collect(),
             ),
         ])

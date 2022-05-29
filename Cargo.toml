@@ -3,12 +3,10 @@ name = "disable-sni-reverse-proxy"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 actix-tls = "3.0.3"
 actix-web = { version = "4.0.1", features = ["rustls"] }
-async-ctrlc = "1.2.0"
+async-ctrlc = { version = "1.2.0", features = ["termination"] }
 async-trait = "0.1.53"
 awc = { version = "3.0.0", features = ["rustls"] }
 dirs-next = "2.0.0"

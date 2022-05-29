@@ -45,7 +45,9 @@ fn gen_hosts(old_hosts: &str, hostnames: &[&str]) -> String {
         })
         .collect::<Vec<&str>>();
 
-    hosts_vec.push(flag);
+    if !hostnames.is_empty() {
+        hosts_vec.push(flag);
+    }
 
     let hostpair = hostnames
         .iter()
@@ -60,7 +62,9 @@ fn gen_hosts(old_hosts: &str, hostnames: &[&str]) -> String {
             .as_mut(),
     );
 
-    hosts_vec.push(flag);
+    if !hostnames.is_empty() {
+        hosts_vec.push(flag);
+    }
 
     hosts_vec.join("\n")
 }

@@ -69,8 +69,8 @@ pub async fn reverse_proxy(
                     true => {
                         forward(
                             client_pair.client_enable_sni(),
-                            &request.uri(),
-                            &request.head(),
+                            request.uri(),
+                            request.head(),
                             payload,
                         )
                         .await
@@ -81,7 +81,7 @@ pub async fn reverse_proxy(
                         forward(
                             client_pair.client_enable_sni(),
                             &Uri::try_from(request_url.as_str())?,
-                            &request.head(),
+                            request.head(),
                             payload,
                         )
                         .await
@@ -90,8 +90,8 @@ pub async fn reverse_proxy(
                 None => {
                     forward(
                         client_pair.client_disable_sni(),
-                        &request.uri(),
-                        &request.head(),
+                        request.uri(),
+                        request.head(),
                         payload,
                     )
                     .await
