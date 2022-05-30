@@ -310,11 +310,37 @@ impl Default for Config {
             Group::new(
                 "Pixiv",
                 None,
-                Some("fanbox.cc"),
-                ["pixiv.net", "www.pixiv.net"]
-                    .into_iter()
-                    .map(Dns::new)
-                    .collect(),
+                None,
+                vec![
+                    Dns {
+                        enable: None,
+                        enable_sni: None,
+                        hostname: "pixiv.net".to_string(),
+                        sni: Some("fanbox.cc".to_string()),
+                        address: None,
+                    },
+                    Dns {
+                        enable: None,
+                        enable_sni: None,
+                        hostname: "www.pixiv.net".to_string(),
+                        sni: Some("fanbox.cc".to_string()),
+                        address: None,
+                    },
+                    Dns {
+                        enable: None,
+                        enable_sni: None,
+                        hostname: "s.pximg.net".to_string(),
+                        sni: None,
+                        address: None,
+                    },
+                    Dns {
+                        enable: None,
+                        enable_sni: Some(false),
+                        hostname: "i.pximg.net".to_string(),
+                        sni: None,
+                        address: None,
+                    },
+                ],
             ),
             Group::new(
                 "Twich",

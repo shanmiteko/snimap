@@ -3,11 +3,10 @@ use std::{sync::Arc, time::Duration};
 use crate::config::SniMap;
 use actix_web::{
     dev::RequestHead,
-    http::{header, Uri, Version},
+    http::{header, uri::PathAndQuery, Uri, Version},
     web, HttpRequest, HttpResponse,
 };
 use awc::Client;
-use url::Url;
 
 /// (enable_sni, disable_sni)
 pub struct ClientPair(Arc<Client>, Arc<Client>);
@@ -29,16 +28,36 @@ impl ClientPair {
 #[inline]
 async fn forward(
     client: Arc<Client>,
-    request_url: &Uri,
+    host: &str,
     head: &RequestHead,
     payload: web::Payload,
 ) -> Result<HttpResponse, Box<dyn std::error::Error>> {
-    let awc_response = client
-        .request_from(request_url.clone(), head)
-        .timeout(Duration::from_secs(10))
-        .no_decompress()
-        .send_stream(payload)
-        .await?;
+    let awc_request = client
+        .request_from(
+            Uri::try_from(format!(
+                "{}://{}{}",
+                head.uri.scheme_str().unwrap_or("https"),
+                host,
+                head.uri
+                    .path_and_query()
+                    .unwrap_or(&PathAndQuery::from_static("/"))
+            ))?,
+            head,
+        )
+        .timeout(Duration::from_secs(30))
+        .no_decompress();
+    log::info!(
+        target: "forward",
+        "{} \"{} {} {:?}\" host: {:?}",
+        host,
+        awc_request.get_method(),
+        head.uri.path(),
+        awc_request.get_version(),
+        head.headers()
+            .get(header::HOST)
+            .unwrap(),
+    );
+    let awc_response = awc_request.send_stream(payload).await?;
     let mut response = HttpResponse::build(awc_response.status());
     for (header_name, header_value) in awc_response
         .headers()
@@ -64,39 +83,17 @@ pub async fn reverse_proxy(
         _ => request.uri().host(),
     } {
         Some(host) => match sni_map.get(host) {
-            Some(sni_maybe_none) => match sni_maybe_none {
-                Some(sni) => match host == sni {
-                    true => {
-                        forward(
-                            client_pair.client_enable_sni(),
-                            request.uri(),
-                            request.head(),
-                            payload,
-                        )
-                        .await
+            Some(sni_maybe_none) => {
+                let mut head = request.head().clone();
+                head.headers_mut()
+                    .insert(header::HOST, header::HeaderValue::from_str(host)?);
+                match sni_maybe_none {
+                    Some(sni) => {
+                        forward(client_pair.client_enable_sni(), sni, &head, payload).await
                     }
-                    false => {
-                        let mut request_url = Url::parse(&request.uri().to_string())?;
-                        request_url.set_host(Some(sni.as_str()))?;
-                        forward(
-                            client_pair.client_enable_sni(),
-                            &Uri::try_from(request_url.as_str())?,
-                            request.head(),
-                            payload,
-                        )
-                        .await
-                    }
-                },
-                None => {
-                    forward(
-                        client_pair.client_disable_sni(),
-                        request.uri(),
-                        request.head(),
-                        payload,
-                    )
-                    .await
+                    None => forward(client_pair.client_disable_sni(), host, &head, payload).await,
                 }
-            },
+            }
             None => Ok(HttpResponse::Forbidden()
                 .body(format!("Host \"{host}\" not enabled in config.toml"))),
         },

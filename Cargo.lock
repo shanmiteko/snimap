@@ -591,6 +591,7 @@ dependencies = [
  "awc",
  "dirs-next",
  "futures",
+ "log",
  "once_cell",
  "pretty_env_logger",
  "rcgen",
@@ -601,8 +602,6 @@ dependencies = [
  "serde_derive",
  "thiserror",
  "toml",
- "tracing",
- "url",
  "webpki-roots",
 ]
 

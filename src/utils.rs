@@ -3,17 +3,17 @@ use std::{fs, io::Error, path::PathBuf};
 use crate::dirs::hosts_path;
 
 pub fn read_to_string(path: &PathBuf) -> Result<String, Error> {
-    tracing::debug!("read_to_string {:?}", path);
+    log::debug!("read_to_string {:?}", path);
     fs::read_to_string(path)
 }
 
 pub fn write(path: &PathBuf, contents: &str) -> Result<(), Error> {
-    tracing::debug!("write {:?} {}", path, contents);
+    log::debug!("write {:?} {}", path, contents);
     fs::write(path, contents)
 }
 
 pub fn create_dir_all(path: &PathBuf) -> Result<(), Error> {
-    tracing::debug!("create_dir_all {:?}", path);
+    log::debug!("create_dir_all {:?}", path);
     fs::create_dir_all(path)
 }
 

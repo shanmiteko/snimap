@@ -1,8 +1,8 @@
 #![feature(async_closure)]
-use std::{env, sync::Arc};
+use std::{env, sync::Arc, time::Duration};
 
 use actix_tls::connect::{Connector as ActixTlsConnector, Resolver as ActixTlsResolver};
-use actix_web::{middleware, web, App, HttpServer};
+use actix_web::{web, App, HttpServer};
 use async_ctrlc::CtrlC;
 use awc::{Client as AwcClient, Connector as AwcConnector};
 use config::{Config, ConfigMap};
@@ -80,11 +80,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         App::new()
             .app_data(sni_map_data.clone())
             .app_data(client_pair)
-            .wrap(middleware::Logger::new("%{HOST}i \"%r\" %s %b %Dms"))
             .default_service(web::to(reverse_proxy))
     })
     .bind_rustls("127.0.0.1:443", rustls_server_config(cert)?)?
     .disable_signals()
+    .client_request_timeout(Duration::from_secs(30))
+    .client_disconnect_timeout(Duration::from_secs(30))
     .run();
 
     let server_handle = server.handle();
@@ -96,9 +97,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .await;
             server_handle.stop(true).await;
             edit_hosts(&Vec::new()).await?;
+            log::info!("restore hosts");
             Ok::<(), Box<dyn std::error::Error>>(())
         },
         async {
+            log::info!("reverse proxy server is running at :443");
             server.await?;
             Ok::<(), Box<dyn std::error::Error>>(())
         }

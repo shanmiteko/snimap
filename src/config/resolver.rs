@@ -38,18 +38,18 @@ impl DnsResolve for Dns {
     async fn resolve(&mut self) -> Result<(), Error> {
         if let Some(hostname) = self.hostname_ref() {
             if self.address_ref().is_none() {
-                tracing::info!(target: "lookup", "lookup {} ...", hostname);
+                log::info!(target: "lookup", "lookup {} ...", hostname);
                 match capture_ip_from_html_plain(&ip_lookup_on_ipaddress_com(hostname).await?) {
                     Some(address) => {
-                        tracing::info!("{} -> {}", hostname, &address);
+                        log::info!(target: "lookup", "{} -> {}", hostname, &address);
                         self.set_address(address)
                     }
                     None => {
-                        tracing::warn!(target: "lookup","{} not found", hostname);
+                        log::warn!(target: "lookup", "{} not found", hostname);
                     }
                 }
             } else {
-                tracing::info!(target: "lookup","{} had address", hostname);
+                log::info!(target: "lookup", "{} had address", hostname);
             }
         }
         Ok(())
