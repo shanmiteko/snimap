@@ -25,6 +25,7 @@ impl Resolve for LocalHosts {
             if let Some(socket_addr) = self.0.get(host) {
                 Ok(vec![*socket_addr])
             } else {
+                log::error!("No dns records for {}", host);
                 Ok(vec![])
             }
         })

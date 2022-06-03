@@ -316,14 +316,21 @@ impl Default for Config {
                         enable: None,
                         enable_sni: None,
                         hostname: "pixiv.net".to_string(),
-                        sni: Some("fanbox.cc".to_string()),
+                        sni: Some("www.fanbox.cc".to_string()),
                         address: None,
                     },
                     Dns {
                         enable: None,
                         enable_sni: None,
                         hostname: "www.pixiv.net".to_string(),
-                        sni: Some("fanbox.cc".to_string()),
+                        sni: Some("www.fanbox.cc".to_string()),
+                        address: None,
+                    },
+                    Dns {
+                        enable: None,
+                        enable_sni: None,
+                        hostname: "accounts.pixiv.net".to_string(),
+                        sni: Some("www.fanbox.cc".to_string()),
                         address: None,
                     },
                     Dns {

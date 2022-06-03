@@ -50,6 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let server = HttpServer::new(move || {
         let client_enable_sni = AwcClient::builder()
+            .timeout(Duration::from_secs(30))
             .connector(
                 AwcConnector::new()
                     .connector(
@@ -60,9 +61,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     )
                     .rustls(client_config_enable_sni.clone()),
             )
+            .disable_redirects()
             .finish();
 
         let client_disable_sni = AwcClient::builder()
+            .timeout(Duration::from_secs(30))
             .connector(
                 AwcConnector::new()
                     .connector(
@@ -73,6 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     )
                     .rustls(client_config_disable_sni.clone()),
             )
+            .disable_redirects()
             .finish();
 
         let client_pair = web::Data::new(ClientPair::new(client_enable_sni, client_disable_sni));
@@ -97,11 +101,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .await;
             server_handle.stop(true).await;
             edit_hosts(&Vec::new()).await?;
-            log::info!("restore hosts");
+            log::info!(target: "proxy", "restore hosts");
             Ok::<(), Box<dyn std::error::Error>>(())
         },
         async {
-            log::info!("reverse proxy server is running at :443");
+            log::info!(target: "proxy", "start server on :443");
             server.await?;
             Ok::<(), Box<dyn std::error::Error>>(())
         }
@@ -113,7 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn init_logger() {
     let log_name = "RUST_LOG";
     if env::var(log_name).is_err() {
-        env::set_var(log_name, "INFO");
+        env::set_var(log_name, "error,proxy,lookup,forward");
     }
     pretty_env_logger::init_custom_env(log_name);
 }

@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use crate::config::SniMap;
 use actix_web::{
@@ -28,7 +28,7 @@ impl ClientPair {
 #[inline]
 async fn forward(
     client: Arc<Client>,
-    host: &str,
+    sni: &str,
     head: &RequestHead,
     payload: web::Payload,
 ) -> Result<HttpResponse, Box<dyn std::error::Error>> {
@@ -37,27 +37,52 @@ async fn forward(
             Uri::try_from(format!(
                 "{}://{}{}",
                 head.uri.scheme_str().unwrap_or("https"),
-                host,
+                sni,
                 head.uri
                     .path_and_query()
                     .unwrap_or(&PathAndQuery::from_static("/"))
             ))?,
             head,
         )
-        .timeout(Duration::from_secs(30))
+        // .version(head.version)
         .no_decompress();
-    log::info!(
-        target: "forward",
-        "{} \"{} {} {:?}\" host: {:?}",
-        host,
-        awc_request.get_method(),
-        head.uri.path(),
-        awc_request.get_version(),
-        head.headers()
-            .get(header::HOST)
-            .unwrap(),
+    let (method, version) = (
+        awc_request.get_method().to_owned(),
+        awc_request.get_version().to_owned(),
     );
-    let awc_response = awc_request.send_stream(payload).await?;
+    let awc_response = match awc_request.send_stream(payload).await {
+        Ok(r) => {
+            log::info!(
+                target: "forward",
+                "{} \"{} {} {:?}\" host: {:?} {} {:?}",
+                sni,
+                method,
+                head.uri.path(),
+                version,
+                head.headers()
+                    .get(header::HOST)
+                    .unwrap(),
+                r.status(),
+                r.version(),
+            );
+            r
+        }
+        Err(e) => {
+            log::error!(
+                target: "forward",
+                "{} \"{} {} {:?}\" host: {:?} error: {}",
+                sni,
+                method,
+                head.uri.path(),
+                version,
+                head.headers()
+                    .get(header::HOST)
+                    .unwrap(),
+                e
+            );
+            return Err(e.into());
+        }
+    };
     let mut response = HttpResponse::build(awc_response.status());
     for (header_name, header_value) in awc_response
         .headers()
