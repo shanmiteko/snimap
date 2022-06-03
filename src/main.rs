@@ -59,6 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         )))
                         .service(),
                     )
+                    .timeout(Duration::from_secs(30))
                     .rustls(client_config_enable_sni.clone()),
             )
             .disable_redirects()
@@ -74,6 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         )))
                         .service(),
                     )
+                    .timeout(Duration::from_secs(30))
                     .rustls(client_config_disable_sni.clone()),
             )
             .disable_redirects()
