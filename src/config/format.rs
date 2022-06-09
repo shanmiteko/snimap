@@ -1,17 +1,11 @@
-use std::{
-    collections::HashMap,
-    net::{IpAddr, SocketAddr},
-};
+use std::collections::HashMap;
 
 use serde_derive::{Deserialize, Serialize};
 
-type SocketAddrRaw = String;
 type Hostname = String;
 type Sni = Option<Hostname>;
 
-pub struct ConfigMap(HashMap<Hostname, (SocketAddrRaw, Sni)>);
-pub type DomainMap = HashMap<Hostname, SocketAddr>;
-pub type SniMap = HashMap<Hostname, Sni>;
+pub struct SniMap(HashMap<Hostname, Sni>);
 
 #[derive(Deserialize, Serialize)]
 pub struct Config {
@@ -35,7 +29,6 @@ pub struct Dns {
     enable_sni: Option<bool>,
     hostname: String,
     sni: Option<String>,
-    address: Option<String>,
 }
 
 trait Switchable {
@@ -81,14 +74,6 @@ impl Config {
             groups,
         }
     }
-
-    pub fn group_mut(&mut self) -> Option<&mut Vec<Group>> {
-        if self.enable() {
-            Some(self.groups.as_mut())
-        } else {
-            None
-        }
-    }
 }
 
 impl Group {
@@ -101,14 +86,6 @@ impl Group {
             dnses,
         }
     }
-
-    pub fn dns_mut(&mut self) -> Option<&mut Vec<Dns>> {
-        if self.enable() {
-            Some(self.dnses.as_mut())
-        } else {
-            None
-        }
-    }
 }
 
 impl Dns {
@@ -118,87 +95,54 @@ impl Dns {
             enable_sni: None,
             hostname: hostname.to_string(),
             sni: None,
-            address: None,
         }
-    }
-
-    pub fn hostname_ref(&self) -> Option<&str> {
-        if self.enable() {
-            Some(self.hostname.as_str())
-        } else {
-            None
-        }
-    }
-
-    pub fn address_ref(&self) -> Option<&str> {
-        self.address.as_deref()
-    }
-
-    pub fn set_address(&mut self, address: String) {
-        self.address = Some(address);
     }
 }
 
-impl ConfigMap {
+impl SniMap {
     pub fn new() -> Self {
         Self(HashMap::new())
     }
 
-    pub fn insert(&mut self, k: Hostname, v: (SocketAddrRaw, Sni)) {
+    pub fn hostnames(&self) -> Vec<&str> {
+        self.0.keys().map(|s| s.as_str()).collect()
+    }
+
+    pub fn get(&self, hostname: &str) -> Option<&Sni> {
+        self.0.get(hostname)
+    }
+
+    pub fn insert(&mut self, k: Hostname, v: Sni) {
         self.0.insert(k, v);
     }
 
-    pub fn merge<T: Into<Self>>(&mut self, other: T) {
+    pub fn merge<T: Into<SniMap>>(&mut self, other: T) {
         other
             .into()
             .0
             .into_iter()
             .for_each(|(k, v)| self.insert(k, v))
     }
-
-    pub fn split(self) -> (DomainMap, SniMap) {
-        let (mut domain_map, mut sni_map) = (DomainMap::new(), SniMap::new());
-        self.0
-            .into_iter()
-            .for_each(|(hostname, (socket_addr_raw, sni))| {
-                if let Ok(ip) = socket_addr_raw.parse::<IpAddr>() {
-                    let socket_addr = SocketAddr::new(ip, 443);
-                    domain_map.insert(hostname.clone(), socket_addr);
-                    if sni.is_some() {
-                        domain_map.insert(sni.clone().unwrap(), socket_addr);
-                    }
-                }
-                sni_map.insert(hostname, sni);
-            });
-        (domain_map, sni_map)
-    }
 }
 
-impl From<Dns> for ConfigMap {
+impl From<Dns> for SniMap {
     fn from(dns: Dns) -> Self {
-        let mut config_map = ConfigMap::new();
+        let mut sni_map = SniMap::new();
         if dns.enable() {
             let enable_sni = dns.enable_sni();
-            let Dns {
-                hostname,
-                sni,
-                address,
-                ..
-            } = dns;
-            if let Some(addr) = address {
-                config_map.insert(
-                    hostname.clone(),
-                    (addr, enable_sni.then_some(sni.unwrap_or(hostname))),
-                );
-            }
+            let Dns { hostname, sni, .. } = dns;
+            sni_map.insert(
+                hostname.clone(),
+                enable_sni.then_some(sni.unwrap_or(hostname)),
+            );
         }
-        config_map
+        sni_map
     }
 }
 
-impl From<Group> for ConfigMap {
+impl From<Group> for SniMap {
     fn from(group: Group) -> Self {
-        let mut config_map = ConfigMap::new();
+        let mut sni_map = SniMap::new();
         if group.enable() {
             let enable_sni = group.enable_sni();
             let Group {
@@ -213,16 +157,16 @@ impl From<Group> for ConfigMap {
                     d.enable_sni = Some(false);
                     d.sni = None;
                 }
-                config_map.merge(d);
+                sni_map.merge(d);
             });
         }
-        config_map
+        sni_map
     }
 }
 
-impl From<Config> for ConfigMap {
+impl From<Config> for SniMap {
     fn from(config: Config) -> Self {
-        let mut config_map = ConfigMap::new();
+        let mut sni_map = SniMap::new();
         if config.enable() {
             let enable_sni = config.enable_sni();
             config.groups.into_iter().for_each(|mut g: Group| {
@@ -230,10 +174,10 @@ impl From<Config> for ConfigMap {
                     g.enable_sni = Some(false);
                     g.sni = None;
                 }
-                config_map.merge(g);
+                sni_map.merge(g);
             });
         }
-        config_map
+        sni_map
     }
 }
 
@@ -317,35 +261,30 @@ impl Default for Config {
                         enable_sni: None,
                         hostname: "pixiv.net".to_string(),
                         sni: Some("www.fanbox.cc".to_string()),
-                        address: None,
                     },
                     Dns {
                         enable: None,
                         enable_sni: None,
                         hostname: "www.pixiv.net".to_string(),
                         sni: Some("www.fanbox.cc".to_string()),
-                        address: None,
                     },
                     Dns {
                         enable: None,
                         enable_sni: None,
                         hostname: "accounts.pixiv.net".to_string(),
                         sni: Some("www.fanbox.cc".to_string()),
-                        address: None,
                     },
                     Dns {
                         enable: None,
                         enable_sni: None,
                         hostname: "s.pximg.net".to_string(),
                         sni: None,
-                        address: None,
                     },
                     Dns {
                         enable: None,
                         enable_sni: Some(false),
                         hostname: "i.pximg.net".to_string(),
                         sni: None,
-                        address: None,
                     },
                 ],
             ),
@@ -369,7 +308,7 @@ impl Default for Config {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, ConfigMap, Dns, Group};
+    use super::{Config, Dns, Group, SniMap};
 
     #[test]
     fn config_default() {
@@ -377,69 +316,49 @@ mod tests {
     }
 
     #[test]
-    fn dns_into_config_map() {
-        let config_map: ConfigMap = Dns {
+    fn dns_into_sni_map() {
+        let sni_map: SniMap = Dns {
             enable: Some(false),
             enable_sni: Some(false),
             hostname: "hostname".to_string(),
             sni: Some("sni".to_string()),
-            address: Some("1.1.1.1".to_string()),
         }
         .into();
-        assert_eq!(config_map.0.len(), 0, "1");
-        let (domain_map, sni_map) = config_map.split();
-        assert_eq!(domain_map.get("hostname"), None);
+        assert_eq!(sni_map.0.len(), 0, "1");
+        assert_eq!(sni_map.get("hostname"), None);
         assert_eq!(sni_map.get("hostname"), None);
 
-        let config_map: ConfigMap = Dns {
+        let sni_map: SniMap = Dns {
             enable: Some(true),
             enable_sni: Some(false),
             hostname: "hostname".to_string(),
             sni: Some("sni".to_string()),
-            address: Some("1.1.1.1".to_string()),
         }
         .into();
-        let (domain_map, sni_map) = config_map.split();
-        assert_eq!(
-            domain_map.get("hostname"),
-            Some(&"1.1.1.1:443".parse().unwrap())
-        );
         assert_eq!(sni_map.get("hostname"), Some(&None));
 
-        let config_map: ConfigMap = Dns {
+        let sni_map: SniMap = Dns {
             enable: Some(true),
             enable_sni: Some(true),
             hostname: "hostname".to_string(),
             sni: Some("sni".to_string()),
-            address: Some("1.1.1.1".to_string()),
         }
         .into();
-        let (domain_map, sni_map) = config_map.split();
-        assert_eq!(
-            domain_map.get("hostname"),
-            Some(&"1.1.1.1:443".parse().unwrap())
-        );
         assert_eq!(sni_map.get("hostname"), Some(&Some("sni".to_string())));
 
-        let config_map: ConfigMap = Dns {
+        let sni_map: SniMap = Dns {
             enable: Some(true),
             enable_sni: Some(true),
             hostname: "hostname".to_string(),
             sni: None,
-            address: Some("1.1.1.1".to_string()),
         }
         .into();
-        let (domain_map, sni_map) = config_map.split();
-        assert_eq!(
-            domain_map.get("hostname"),
-            Some(&"1.1.1.1:443".parse().unwrap())
-        );
         assert_eq!(sni_map.get("hostname"), Some(&Some("hostname".to_string())));
     }
 
     #[test]
     fn group_into_config_map() {
-        let config_map: ConfigMap = Group {
+        let sni_map: SniMap = Group {
             enable: Some(true),
             enable_sni: Some(false),
             name: "name".to_string(),
@@ -449,21 +368,15 @@ mod tests {
                 enable_sni: Some(true),
                 hostname: "hostname".to_string(),
                 sni: Some("sni".to_string()),
-                address: Some("1.1.1.1".to_string()),
             }],
         }
         .into();
-        let (domain_map, sni_map) = config_map.split();
-        assert_eq!(
-            domain_map.get("hostname"),
-            Some(&"1.1.1.1:443".parse().unwrap())
-        );
         assert_eq!(sni_map.get("hostname"), Some(&None));
     }
 
     #[test]
     fn config_into_config_map() {
-        let config_map: ConfigMap = Config {
+        let sni_map: SniMap = Config {
             enable: Some(true),
             enable_sni: Some(true),
             groups: vec![Group {
@@ -476,16 +389,10 @@ mod tests {
                     enable_sni: Some(true),
                     hostname: "hostname".to_string(),
                     sni: Some("sni".to_string()),
-                    address: Some("1.1.1.1".to_string()),
                 }],
             }],
         }
         .into();
-        let (domain_map, sni_map) = config_map.split();
-        assert_eq!(
-            domain_map.get("hostname"),
-            Some(&"1.1.1.1:443".parse().unwrap())
-        );
         assert_eq!(sni_map.get("hostname"), Some(&None));
     }
 }

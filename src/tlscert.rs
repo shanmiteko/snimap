@@ -3,8 +3,8 @@ use rcgen::{
     SanType,
 };
 use rustls::{
-    Certificate as RustlsCert, ClientConfig, Error, OwnedTrustAnchor, PrivateKey, RootCertStore,
-    ServerConfig,
+    Certificate as RustlsCert, ClientConfig as RustlsClientConfig, Error, OwnedTrustAnchor,
+    PrivateKey, RootCertStore, ServerConfig as RustlsServerConfig,
 };
 
 /// DER-encoded
@@ -42,14 +42,14 @@ pub trait DisableSni {
     fn disable_sni(self) -> Self;
 }
 
-impl DisableSni for ClientConfig {
+impl DisableSni for RustlsClientConfig {
     fn disable_sni(mut self) -> Self {
         self.enable_sni = false;
         self
     }
 }
 
-pub fn rustls_client_config() -> ClientConfig {
+pub fn rustls_client_config() -> RustlsClientConfig {
     let mut root_store = RootCertStore::empty();
 
     root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
@@ -60,14 +60,14 @@ pub fn rustls_client_config() -> ClientConfig {
         )
     }));
 
-    ClientConfig::builder()
+    RustlsClientConfig::builder()
         .with_safe_defaults()
         .with_root_certificates(root_store)
         .with_no_client_auth()
 }
 
-pub fn rustls_server_config(single_cert: SingleCert) -> Result<ServerConfig, Error> {
-    ServerConfig::builder()
+pub fn rustls_server_config(single_cert: SingleCert) -> Result<RustlsServerConfig, Error> {
+    RustlsServerConfig::builder()
         .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(

@@ -7,10 +7,8 @@ use crate::dirs;
 use crate::utils::{create_dir_all, read_to_string, write};
 
 pub use self::format::*;
-pub use self::resolver::*;
 
 mod format;
-mod resolver;
 
 #[derive(ThisError, Debug)]
 pub enum ConfigError {
@@ -34,14 +32,6 @@ impl Config {
             default_config
         };
         Ok(config)
-    }
-
-    pub async fn update_file(&self) -> Result<(), ConfigError> {
-        let config_file = dirs::config_file();
-        if config_file.is_file() {
-            write(&config_file, &stringify(self)?)?;
-        };
-        Ok(())
     }
 }
 
