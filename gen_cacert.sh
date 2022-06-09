@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eu
 cert_dir=private
-name=disable_sni_reverse_proxy_root_ca
+name=snimap_root_ca
 
 mkdir -p "$cert_dir"
 

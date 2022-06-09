@@ -22,7 +22,7 @@ pub async fn cert_generate(alt_dnsname: &[&str]) -> Result<SingleCert, RcgenErro
     let mut cert_params = CertificateParams::default();
     cert_params.distinguished_name = {
         let mut dn = DistinguishedName::new();
-        dn.push(DnType::CommonName, "disable_sni_reverse_proxy");
+        dn.push(DnType::CommonName, "snimap");
         dn
     };
     cert_params.subject_alt_names = alt_dnsname

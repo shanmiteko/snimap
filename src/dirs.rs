@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 pub fn config_dir() -> PathBuf {
     dirs_next::config_dir()
-        .map(|config_dir| config_dir.join("disable-sni-reverse-proxy"))
+        .map(|config_dir| config_dir.join("snimap"))
         .expect("config directory not found")
 }
 

@@ -31,7 +31,7 @@ pub async fn edit_hosts(hostnames: &[&str]) -> Result<(), Box<dyn std::error::Er
 
 fn gen_hosts(old_hosts: &str, hostnames: &[&str]) -> String {
     let mut is_will_change = false;
-    let flag = "# Auto Generate by disable_sni_reverse_proxy";
+    let flag = "# Auto Generate by snimap";
 
     let mut hosts_vec = old_hosts
         .lines()
@@ -80,10 +80,10 @@ fn test_gen_hosts() {
     let new_hosts = "# ...
 # ...
 127.0.0.1\tlocalhost
-# Auto Generate by disable_sni_reverse_proxy
+# Auto Generate by snimap
 127.0.0.1\thostname1
 127.0.0.1\thostname2
-# Auto Generate by disable_sni_reverse_proxy";
+# Auto Generate by snimap";
     assert_eq!(gen_hosts(old_hosts, &hostnames), new_hosts);
     assert_eq!(gen_hosts(new_hosts, &hostnames), new_hosts);
 }
