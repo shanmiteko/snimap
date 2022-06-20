@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{config::SniMap, resolver::resolver};
-use actix_tls::connect::Connector as ActixTlsConnector;
+use crate::{config::SniMap, resolver::DnsCache};
+use actix_tls::connect::{Connector as ActixTlsConnector, Resolver};
 use actix_web::{
     dev::RequestHead,
     http::{header, uri::PathAndQuery, Uri, Version},
@@ -17,12 +17,15 @@ impl ClientPair {
     pub fn new(
         client_config_enable_sni: Arc<ClientConfig>,
         client_config_disable_sni: Arc<ClientConfig>,
+        dns_cache: DnsCache,
     ) -> Self {
         let client_enable_sni = AwcClient::builder()
             .timeout(Duration::from_secs(30))
             .connector(
                 AwcConnector::new()
-                    .connector(ActixTlsConnector::new(resolver()).service())
+                    .connector(
+                        ActixTlsConnector::new(Resolver::custom(dns_cache.clone())).service(),
+                    )
                     .timeout(Duration::from_secs(30))
                     .rustls(client_config_enable_sni),
             )
@@ -33,7 +36,7 @@ impl ClientPair {
             .timeout(Duration::from_secs(30))
             .connector(
                 AwcConnector::new()
-                    .connector(ActixTlsConnector::new(resolver()).service())
+                    .connector(ActixTlsConnector::new(Resolver::custom(dns_cache)).service())
                     .timeout(Duration::from_secs(30))
                     .rustls(client_config_disable_sni),
             )
@@ -166,6 +169,7 @@ mod tests {
     use crate::{
         config::SniMap,
         handler::{reverse_proxy, ClientPair},
+        resolver::DnsCache,
         tlscert::{rustls_client_config, DisableSni},
     };
 
@@ -175,8 +179,10 @@ mod tests {
         headers: Option<Vec<(&str, &str)>>,
     ) -> http::StatusCode {
         let mut sni_map = SniMap::new();
+        let mut dns_cache = DnsCache::new(&[]);
         if let Some(host) = hostname {
             sni_map.insert(host.into(), sni.map(|s| s.into()));
+            dns_cache = DnsCache::new(&[host]);
         }
         let sni_map_data = Data::new(sni_map);
         let (client_config_enable_sni, client_config_disable_sni) = (
@@ -189,6 +195,7 @@ mod tests {
                 .app_data(Data::new(ClientPair::new(
                     client_config_enable_sni.clone(),
                     client_config_disable_sni.clone(),
+                    dns_cache,
                 )))
                 .default_service(to(reverse_proxy)),
         )

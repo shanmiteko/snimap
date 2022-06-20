@@ -1,27 +1,15 @@
-use std::io::Error as IoError;
-
-use thiserror::Error as ThisError;
 use toml::{de::Error as TomlDeError, ser::Error as TomlSerError};
 
 use crate::dirs;
+use crate::error::AnyError;
 use crate::utils::{create_dir_all, read_to_string, write};
 
 pub use self::format::*;
 
 mod format;
 
-#[derive(ThisError, Debug)]
-pub enum ConfigError {
-    #[error("cannot get config")]
-    Io(#[from] IoError),
-    #[error("cannot parse config")]
-    TomlDe(#[from] TomlDeError),
-    #[error("cannot stringify config")]
-    TomlSer(#[from] TomlSerError),
-}
-
 impl Config {
-    pub async fn from_file() -> Result<Config, ConfigError> {
+    pub async fn from_file() -> Result<Config, AnyError> {
         let config_file = dirs::config_file();
         let config = if config_file.is_file() {
             parse(read_to_string(&config_file)?.as_bytes())?

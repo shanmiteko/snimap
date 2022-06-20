@@ -3,22 +3,25 @@ use std::{env, sync::Arc, time::Duration};
 use actix_web::{web, App, HttpServer};
 use async_ctrlc::CtrlC;
 use config::{Config, SniMap};
+use error::AnyError;
 use handler::{reverse_proxy, ClientPair};
+use resolver::DnsCache;
 use tlscert::{cert_generate, rustls_client_config, rustls_server_config, DisableSni};
 use utils::edit_hosts;
 
 mod config;
 mod dirs;
+mod error;
 mod handler;
 mod resolver;
 mod tlscert;
 mod utils;
 
 #[actix_web::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), AnyError> {
     init_logger();
 
-    let sni_map = SniMap::from(Config::from_file().await?);
+    let sni_map = web::Data::new(SniMap::from(Config::from_file().await?));
 
     let hostnames = sni_map.hostnames();
 
@@ -26,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cert = cert_generate(&hostnames).await?;
 
-    let sni_map_data = web::Data::new(sni_map);
+    let dns_cache = DnsCache::new(&hostnames);
 
     let (client_config_enable_sni, client_config_disable_sni) = (
         Arc::new(rustls_client_config()),
@@ -35,10 +38,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let server = HttpServer::new(move || {
         App::new()
-            .app_data(sni_map_data.clone())
+            .app_data(sni_map.clone())
             .app_data(web::Data::new(ClientPair::new(
                 client_config_enable_sni.clone(),
                 client_config_disable_sni.clone(),
+                dns_cache.clone(),
             )))
             .default_service(web::to(reverse_proxy))
     })
