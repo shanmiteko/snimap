@@ -283,6 +283,25 @@ impl Default for Config {
                 ],
             ),
             Group::new(
+                "Iwara",
+                None,
+                None,
+                vec![
+                    Dns {
+                        enable: None,
+                        enable_sni: None,
+                        hostname: "iwara.tv".to_string(),
+                        sni: None,
+                    },
+                    Dns {
+                        enable: None,
+                        enable_sni: None,
+                        hostname: "i.iwara.tv".to_string(),
+                        sni: Some("iwara.tv".to_string()),
+                    },
+                ],
+            ),
+            Group::new(
                 "Twich",
                 None,
                 None,

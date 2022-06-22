@@ -8,6 +8,10 @@ if [[ -z "${dns_server}" ]]; then
     exit 0
 fi
 
+if [[ -n "$2" ]]; then
+    domain=$2
+fi
+
 echo "use dns_server $dns_server"
 
 ip=$(nslookup $domain $dns_server | awk '/Address/ {print $2}' | head -2 | tail -1)

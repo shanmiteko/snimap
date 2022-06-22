@@ -113,9 +113,7 @@ async fn forward(
         }
     };
     let mut response = HttpResponse::build(awc_response.status());
-    for (header_name, header_value) in awc_response.headers().iter()
-    // .filter(|(h, _)| *h != "connection")
-    {
+    for (header_name, header_value) in awc_response.headers().iter() {
         response.insert_header((header_name.clone(), header_value.clone()));
     }
     Ok(response.streaming(awc_response))
@@ -147,9 +145,9 @@ pub async fn reverse_proxy(
                 }
             }
             None => Ok(HttpResponse::Forbidden()
-                .body(format!("Host \"{host}\" not enabled in config.toml"))),
+                .body(format!("'host=\"{host}\"' not enabled in config.toml"))),
         },
-        None => Ok(HttpResponse::NotFound().body("Host not found")),
+        None => Ok(HttpResponse::NotFound().body("'host=xxx' not found in header")),
     }
 }
 
@@ -269,5 +267,47 @@ mod tests {
             .is_success(),
             "www.pixiv.net should be success"
         );
+    }
+
+    #[actix_web::test]
+    async fn test_reverse_proxy_post() {
+        use actix_web::body::to_bytes;
+
+        let mut sni_map = SniMap::new();
+        sni_map.insert("httpbin.org".to_string(), Some("httpbin.org".to_string()));
+        let dns_cache = DnsCache::new();
+        let sni_map_data = Data::new(sni_map);
+        let (client_config_enable_sni, client_config_disable_sni) = (
+            Arc::new(rustls_client_config()),
+            Arc::new(rustls_client_config().disable_sni()),
+        );
+        let mut srv = test::init_service(
+            App::new()
+                .app_data(sni_map_data.clone())
+                .app_data(Data::new(ClientPair::new(
+                    client_config_enable_sni.clone(),
+                    client_config_disable_sni.clone(),
+                    dns_cache,
+                )))
+                .default_service(to(reverse_proxy)),
+        )
+        .await;
+
+        let test_req = test::TestRequest::post()
+            .uri("/post")
+            .insert_header(("host", "httpbin.org"))
+            .set_json(r#"{"data":"test_reverse_proxy_post"}"#);
+
+        let resp = test::call_service(&mut srv, test_req.to_request()).await;
+
+        let body = String::from_utf8(
+            to_bytes(resp.into_body())
+                .await
+                .expect("body to bytes")
+                .to_ascii_lowercase(),
+        )
+        .unwrap();
+
+        assert!(dbg!(body).contains("test_reverse_proxy_post"))
     }
 }
