@@ -29,11 +29,10 @@ async fn main() -> Result<(), AnyError> {
 
     let cert = cert_generate(&hostnames).await?;
 
-    let dns_cache = DnsCache::new(&hostnames);
-
-    let (client_config_enable_sni, client_config_disable_sni) = (
+    let (client_config_enable_sni, client_config_disable_sni, dns_cache) = (
         Arc::new(rustls_client_config()),
         Arc::new(rustls_client_config().disable_sni()),
+        DnsCache::new().with_whitelist(&hostnames),
     );
 
     let server = HttpServer::new(move || {
@@ -62,12 +61,12 @@ async fn main() -> Result<(), AnyError> {
             server_handle.stop(true).await;
             edit_hosts(&Vec::new()).await?;
             log::info!(target: "proxy", "restore hosts");
-            Ok::<(), Box<dyn std::error::Error>>(())
+            Ok::<(), AnyError>(())
         },
         async {
             log::info!(target: "proxy", "start server on :443");
             server.await?;
-            Ok::<(), Box<dyn std::error::Error>>(())
+            Ok::<(), AnyError>(())
         }
     )?;
 
@@ -77,7 +76,7 @@ async fn main() -> Result<(), AnyError> {
 fn init_logger() {
     let log_name = "RUST_LOG";
     if env::var(log_name).is_err() {
-        env::set_var(log_name, "error,proxy,resolver,forward");
+        env::set_var(log_name, "error,proxy,resolver,forward,lookup");
     }
     pretty_env_logger::init_custom_env(log_name);
 }

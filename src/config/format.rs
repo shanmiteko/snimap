@@ -276,15 +276,9 @@ impl Default for Config {
                     },
                     Dns {
                         enable: None,
-                        enable_sni: None,
-                        hostname: "s.pximg.net".to_string(),
-                        sni: None,
-                    },
-                    Dns {
-                        enable: None,
                         enable_sni: Some(false),
                         hostname: "i.pximg.net".to_string(),
-                        sni: None,
+                        sni: Some("s.pximg.net".to_string()),
                     },
                 ],
             ),

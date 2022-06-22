@@ -6,10 +6,9 @@ use std::{
 
 use actix_tls::connect::Resolve;
 use dns_lookup::lookup_host;
-use futures::future::LocalBoxFuture;
+use futures::{future::LocalBoxFuture, lock::Mutex};
 use lru::LruCache;
 use once_cell::sync::Lazy;
-use parking_lot::Mutex;
 use regex::Regex;
 use reqwest::{Client, ClientBuilder, Error as ReqwestError};
 
@@ -95,25 +94,15 @@ impl Clone for DnsCache {
 }
 
 impl DnsCache {
-    pub fn new(white_list: &[&str]) -> Self {
-        Self {
-            white_list: Arc::new(HashSet::from_iter(
-                white_list.iter().map(|host| host.to_string()),
-            )),
-            ..Default::default()
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    fn white_list_has(&self, host: &str) -> bool {
-        self.white_list.contains(host)
-    }
-
-    fn get(&self, host: &str) -> Option<SocketAddr> {
-        self.cache.lock().get(host).cloned().flatten()
-    }
-
-    fn insert(&self, host: &str, addr: SocketAddr) {
-        self.cache.lock().put(host.to_string(), Some(addr));
+    pub fn with_whitelist(mut self, white_list: &[&str]) -> Self {
+        self.white_list = Arc::new(HashSet::from_iter(
+            white_list.iter().map(|host| host.to_string()),
+        ));
+        self
     }
 }
 
@@ -124,16 +113,19 @@ impl Resolve for DnsCache {
         port: u16,
     ) -> LocalBoxFuture<'a, Result<Vec<SocketAddr>, AnyError>> {
         Box::pin(async move {
-            match self.get(host) {
+            let mut cache = self.cache.lock().await;
+            match cache.get(host).cloned().flatten() {
                 Some(socket_addr) => Ok(vec![socket_addr]),
-                None => match self.white_list_has(host) {
+                None => match self.white_list.contains(host) {
                     true => ip_lookup_on_ipaddress_com(host)
                         .await
                         .map(|html| {
                             capture_ip_from_html_plain(&html)
                                 .map(|ip_addr| {
-                                    self.insert(host, SocketAddr::new(ip_addr, port));
-                                    vec![SocketAddr::new(ip_addr, port)]
+                                    log::info!(target: "lookup", "{host} -> {}", &ip_addr);
+                                    let socket_addr = SocketAddr::new(ip_addr, port);
+                                    cache.put(host.to_string(), Some(socket_addr));
+                                    vec![socket_addr]
                                 })
                                 .unwrap_or_else(Vec::new)
                         })
@@ -146,7 +138,8 @@ impl Resolve for DnsCache {
                                 .collect::<Vec<SocketAddr>>()
                                 .first()
                                 .map(|socket_addr| {
-                                    self.insert(host, *socket_addr);
+                                    log::info!(target: "lookup", "{host} -> {}", socket_addr);
+                                    cache.put(host.to_string(), Some(*socket_addr));
                                     vec![*socket_addr]
                                 })
                                 .unwrap_or_else(|| {
@@ -184,12 +177,44 @@ fn regex_from_html_get_ip() {
 
 #[cfg(test)]
 #[actix_web::test]
-async fn test_dns_cache() {
+async fn test_dns_cache_lookup() {
     let cache = DnsCache::default();
     let addr = cache.lookup("duckduckgo.com", 443).await.unwrap();
     assert_eq!(addr.len(), 1);
 
-    let cache = DnsCache::new(&["duckduckgo.com"]);
+    let cache = DnsCache::new().with_whitelist(&["duckduckgo.com"]);
     let addr = cache.lookup("duckduckgo.com", 443).await.unwrap();
     assert_eq!(addr.len(), 1);
+}
+
+#[cfg(test)]
+#[actix_web::test]
+async fn test_dns_cache_clone() {
+    use actix_web::rt::spawn;
+    use futures::future::join_all;
+
+    let cache = DnsCache::new().with_whitelist(&["duckduckgo.com", "google.com"]);
+    let cache2 = cache.clone();
+    let (s, r) = std::sync::mpsc::channel::<Option<SocketAddr>>();
+    let mut jobs = Vec::new();
+    for _ in 0..8 {
+        let cache_clone = cache2.clone();
+        let s_clone = s.clone();
+        jobs.push(spawn(async move {
+            let mut cache_lock = dbg!(cache_clone.cache.lock().await);
+            match cache_lock.get("duckduckgo.com").cloned().flatten() {
+                Some(_) => {}
+                None => {
+                    dbg!(cache_lock
+                        .put("duckduckgo.com".to_string(), "1.1.1.1:443".parse().ok())
+                        .flatten());
+                    s_clone.send("1.1.1.1:443".parse().ok()).unwrap();
+                }
+            }
+        }))
+    }
+    join_all(jobs.into_iter()).await;
+    drop(s);
+    assert_eq!(r.recv().unwrap(), "1.1.1.1:443".parse().ok());
+    assert!(r.recv().is_err());
 }

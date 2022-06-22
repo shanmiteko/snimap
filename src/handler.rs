@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{config::SniMap, resolver::DnsCache};
+use crate::{config::SniMap, error::AnyError, resolver::DnsCache};
 use actix_tls::connect::{Connector as ActixTlsConnector, Resolver};
 use actix_web::{
     dev::RequestHead,
@@ -61,7 +61,7 @@ async fn forward(
     sni: &str,
     head: &RequestHead,
     payload: web::Payload,
-) -> Result<HttpResponse, Box<dyn std::error::Error>> {
+) -> Result<HttpResponse, AnyError> {
     let awc_request = client
         .request_from(
             Uri::try_from(format!(
@@ -74,7 +74,6 @@ async fn forward(
             ))?,
             head,
         )
-        // .version(head.version)
         .no_decompress();
     let (method, version) = (
         awc_request.get_method().to_owned(),
@@ -114,10 +113,8 @@ async fn forward(
         }
     };
     let mut response = HttpResponse::build(awc_response.status());
-    for (header_name, header_value) in awc_response
-        .headers()
-        .iter()
-        .filter(|(h, _)| *h != "connection")
+    for (header_name, header_value) in awc_response.headers().iter()
+    // .filter(|(h, _)| *h != "connection")
     {
         response.insert_header((header_name.clone(), header_value.clone()));
     }
@@ -129,7 +126,7 @@ pub async fn reverse_proxy(
     payload: web::Payload,
     sni_map: web::Data<SniMap>,
     client_pair: web::Data<ClientPair>,
-) -> Result<HttpResponse, Box<dyn std::error::Error>> {
+) -> Result<HttpResponse, AnyError> {
     match match request.version() {
         Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => request
             .headers()
@@ -179,10 +176,10 @@ mod tests {
         headers: Option<Vec<(&str, &str)>>,
     ) -> http::StatusCode {
         let mut sni_map = SniMap::new();
-        let mut dns_cache = DnsCache::new(&[]);
+        let mut dns_cache = DnsCache::new();
         if let Some(host) = hostname {
             sni_map.insert(host.into(), sni.map(|s| s.into()));
-            dns_cache = DnsCache::new(&[host]);
+            dns_cache = DnsCache::new().with_whitelist(&[host]);
         }
         let sni_map_data = Data::new(sni_map);
         let (client_config_enable_sni, client_config_disable_sni) = (

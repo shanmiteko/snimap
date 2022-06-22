@@ -1,6 +1,6 @@
 use std::{fs, io::Error, path::PathBuf};
 
-use crate::dirs::hosts_path;
+use crate::{dirs::hosts_path, error::AnyError};
 
 pub fn read_to_string(path: &PathBuf) -> Result<String, Error> {
     log::debug!("read_to_string {:?}", path);
@@ -17,7 +17,7 @@ pub fn create_dir_all(path: &PathBuf) -> Result<(), Error> {
     fs::create_dir_all(path)
 }
 
-pub async fn edit_hosts(hostnames: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn edit_hosts(hostnames: &[&str]) -> Result<(), AnyError> {
     let hosts_path = hosts_path().ok_or("hosts file not found")?;
 
     let mut hosts_string = read_to_string(&hosts_path)?;
