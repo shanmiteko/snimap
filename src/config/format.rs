@@ -20,11 +20,11 @@ pub struct Group {
     enable_sni: Option<bool>,
     name: String,
     sni: Option<String>,
-    dnses: Vec<Dns>,
+    mappings: Vec<Mapping>,
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct Dns {
+pub struct Mapping {
     enable: Option<bool>,
     enable_sni: Option<bool>,
     hostname: String,
@@ -56,7 +56,7 @@ impl Switchable for Group {
     }
 }
 
-impl Switchable for Dns {
+impl Switchable for Mapping {
     fn enable(&self) -> bool {
         self.enable.unwrap_or(true)
     }
@@ -77,18 +77,23 @@ impl Config {
 }
 
 impl Group {
-    pub fn new(name: &str, enable_sni: Option<bool>, sni: Option<&str>, dnses: Vec<Dns>) -> Self {
+    pub fn new(
+        name: &str,
+        enable_sni: Option<bool>,
+        sni: Option<&str>,
+        mappings: Vec<Mapping>,
+    ) -> Self {
         Self {
             name: name.to_string(),
             enable: None,
             enable_sni,
             sni: sni.map(ToString::to_string),
-            dnses,
+            mappings,
         }
     }
 }
 
-impl Dns {
+impl Mapping {
     pub fn new(hostname: &str) -> Self {
         Self {
             enable: None,
@@ -125,12 +130,12 @@ impl SniMap {
     }
 }
 
-impl From<Dns> for SniMap {
-    fn from(dns: Dns) -> Self {
+impl From<Mapping> for SniMap {
+    fn from(dns: Mapping) -> Self {
         let mut sni_map = SniMap::new();
         if dns.enable() {
             let enable_sni = dns.enable_sni();
-            let Dns { hostname, sni, .. } = dns;
+            let Mapping { hostname, sni, .. } = dns;
             sni_map.insert(
                 hostname.clone(),
                 enable_sni.then_some(sni.unwrap_or(hostname)),
@@ -145,10 +150,8 @@ impl From<Group> for SniMap {
         let mut sni_map = SniMap::new();
         if group.enable() {
             let enable_sni = group.enable_sni();
-            let Group {
-                dnses: dns, sni, ..
-            } = group;
-            dns.into_iter().for_each(|mut d: Dns| {
+            let Group { mappings, sni, .. } = group;
+            mappings.into_iter().for_each(|mut d: Mapping| {
                 if enable_sni {
                     if sni.is_some() {
                         d.sni = sni.clone();
@@ -195,7 +198,7 @@ impl Default for Config {
                     "links.duckduckgo.com",
                 ]
                 .into_iter()
-                .map(Dns::new)
+                .map(Mapping::new)
                 .collect(),
             ),
             Group::new(
@@ -218,7 +221,7 @@ impl Default for Config {
                     "user-images.githubusercontent.com",
                 ]
                 .into_iter()
-                .map(Dns::new)
+                .map(Mapping::new)
                 .collect(),
             ),
             Group::new(
@@ -232,7 +235,7 @@ impl Default for Config {
                     "skyapi.onedrive.live.com",
                 ]
                 .into_iter()
-                .map(Dns::new)
+                .map(Mapping::new)
                 .collect(),
             ),
             Group::new(
@@ -248,7 +251,7 @@ impl Default for Config {
                     "maps.wikimedia.org",
                 ]
                 .into_iter()
-                .map(Dns::new)
+                .map(Mapping::new)
                 .collect(),
             ),
             Group::new(
@@ -256,25 +259,25 @@ impl Default for Config {
                 None,
                 None,
                 vec![
-                    Dns {
+                    Mapping {
                         enable: None,
                         enable_sni: None,
                         hostname: "pixiv.net".to_string(),
                         sni: Some("www.fanbox.cc".to_string()),
                     },
-                    Dns {
+                    Mapping {
                         enable: None,
                         enable_sni: None,
                         hostname: "www.pixiv.net".to_string(),
                         sni: Some("www.fanbox.cc".to_string()),
                     },
-                    Dns {
+                    Mapping {
                         enable: None,
                         enable_sni: None,
                         hostname: "accounts.pixiv.net".to_string(),
                         sni: Some("www.fanbox.cc".to_string()),
                     },
-                    Dns {
+                    Mapping {
                         enable: None,
                         enable_sni: Some(false),
                         hostname: "i.pximg.net".to_string(),
@@ -287,13 +290,13 @@ impl Default for Config {
                 None,
                 None,
                 vec![
-                    Dns {
+                    Mapping {
                         enable: None,
                         enable_sni: None,
                         hostname: "iwara.tv".to_string(),
                         sni: None,
                     },
-                    Dns {
+                    Mapping {
                         enable: None,
                         enable_sni: None,
                         hostname: "i.iwara.tv".to_string(),
@@ -312,7 +315,7 @@ impl Default for Config {
                     "gql.twitch.tv",
                 ]
                 .into_iter()
-                .map(Dns::new)
+                .map(Mapping::new)
                 .collect(),
             ),
         ])
@@ -321,7 +324,7 @@ impl Default for Config {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, Dns, Group, SniMap};
+    use super::{Config, Group, Mapping, SniMap};
 
     #[test]
     fn config_default() {
@@ -330,7 +333,7 @@ mod tests {
 
     #[test]
     fn dns_into_sni_map() {
-        let sni_map: SniMap = Dns {
+        let sni_map: SniMap = Mapping {
             enable: Some(false),
             enable_sni: Some(false),
             hostname: "hostname".to_string(),
@@ -341,7 +344,7 @@ mod tests {
         assert_eq!(sni_map.get("hostname"), None);
         assert_eq!(sni_map.get("hostname"), None);
 
-        let sni_map: SniMap = Dns {
+        let sni_map: SniMap = Mapping {
             enable: Some(true),
             enable_sni: Some(false),
             hostname: "hostname".to_string(),
@@ -350,7 +353,7 @@ mod tests {
         .into();
         assert_eq!(sni_map.get("hostname"), Some(&None));
 
-        let sni_map: SniMap = Dns {
+        let sni_map: SniMap = Mapping {
             enable: Some(true),
             enable_sni: Some(true),
             hostname: "hostname".to_string(),
@@ -359,7 +362,7 @@ mod tests {
         .into();
         assert_eq!(sni_map.get("hostname"), Some(&Some("sni".to_string())));
 
-        let sni_map: SniMap = Dns {
+        let sni_map: SniMap = Mapping {
             enable: Some(true),
             enable_sni: Some(true),
             hostname: "hostname".to_string(),
@@ -376,7 +379,7 @@ mod tests {
             enable_sni: Some(false),
             name: "name".to_string(),
             sni: Some("group_sni".to_string()),
-            dnses: vec![Dns {
+            mappings: vec![Mapping {
                 enable: Some(true),
                 enable_sni: Some(true),
                 hostname: "hostname".to_string(),
@@ -397,7 +400,7 @@ mod tests {
                 enable_sni: Some(false),
                 name: "name".to_string(),
                 sni: Some("group_sni".to_string()),
-                dnses: vec![Dns {
+                mappings: vec![Mapping {
                     enable: Some(true),
                     enable_sni: Some(true),
                     hostname: "hostname".to_string(),

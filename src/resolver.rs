@@ -10,7 +10,7 @@ use futures::{future::LocalBoxFuture, lock::Mutex};
 use lru::LruCache;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use reqwest::{Client, ClientBuilder, Error as ReqwestError};
+use reqwest::{Client, ClientBuilder};
 
 use crate::error::AnyError;
 
@@ -34,40 +34,26 @@ static LOOKUP_CLIENT: Lazy<Client> = Lazy::new(|| {
 static RE_CAPTURE_IP: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"ipaddress.com/ipv4/((\d+\.){3}\d+)").unwrap());
 
-async fn ip_lookup_on_ipaddress_com(host: &str) -> Result<String, ReqwestError> {
-    match LOOKUP_CLIENT
+async fn ip_lookup_on_ipaddress_com<S: AsRef<str>>(host: S) -> Result<String, AnyError> {
+    LOOKUP_CLIENT
         .post("https://www.ipaddress.com/ip-lookup")
-        .form(&[("host", host)])
+        .form(&[("host", host.as_ref())])
         .send()
+        .await?
+        .text()
         .await
-    {
-        Ok(resp) => match resp.text().await {
-            Ok(text) => Ok(text),
-            Err(err) => {
-                log::error!(target: "lookup", "{host} -> failed to get text: {err}");
-                Err(err)
-            }
-        },
-        Err(err) => {
-            log::error!(target: "lookup", "{host} -> failed to post: {err}");
-            Err(err)
-        }
-    }
+        .map_err(Into::into)
 }
 
-fn capture_ip_from_html_plain(html: &str) -> Option<IpAddr> {
-    match RE_CAPTURE_IP
-        .captures(html)?
-        .get(1)?
+fn capture_ip_from_html_plain<S: AsRef<str>>(html: S) -> Result<IpAddr, AnyError> {
+    RE_CAPTURE_IP
+        .captures(html.as_ref())
+        .ok_or("err in capture_ip_from_html_plain: no match is found")?
+        .get(1)
+        .ok_or("err in capture_ip_from_html_plain: this group didn't participate in the match")?
         .as_str()
         .parse::<IpAddr>()
-    {
-        Ok(socket_addr) => Some(socket_addr),
-        Err(err) => {
-            log::error!(target: "lookup", "capture_ip_from_html_plain error: {err} {html}");
-            None
-        }
-    }
+        .map_err(Into::into)
 }
 
 pub struct DnsCache {
@@ -119,35 +105,42 @@ impl Resolve for DnsCache {
                 None => match self.white_list.contains(host) {
                     true => ip_lookup_on_ipaddress_com(host)
                         .await
-                        .map(|html| {
-                            capture_ip_from_html_plain(&html)
-                                .map(|ip_addr| {
-                                    log::info!(target: "lookup", "{host} -> {}", &ip_addr);
-                                    let socket_addr = SocketAddr::new(ip_addr, port);
-                                    cache.put(host.to_string(), Some(socket_addr));
-                                    vec![socket_addr]
-                                })
-                                .unwrap_or_else(Vec::new)
+                        .and_then(capture_ip_from_html_plain)
+                        .map(|ip_addr| {
+                            log::info!(target: "lookup", "{host} -> {}", &ip_addr);
+                            let socket_addr = SocketAddr::new(ip_addr, port);
+                            cache.put(host.to_string(), Some(socket_addr));
+                            vec![socket_addr]
                         })
-                        .map_err(|e| e.into()),
+                        .map_err(|e| {
+                            log::error!(target: "lookup", "{host} -> failed to lookup: {e}");
+                            e
+                        })
+                        .or(Ok(Vec::new())),
                     false => lookup_host(host)
-                        .map(|ip_addrs| {
+                        .map_err(|e| e.to_string())
+                        .and_then(|ip_addrs| {
                             ip_addrs
                                 .into_iter()
                                 .map(|ip_addr| SocketAddr::new(ip_addr, port))
                                 .collect::<Vec<SocketAddr>>()
                                 .first()
-                                .map(|socket_addr| {
-                                    log::info!(target: "lookup", "{host} -> {}", socket_addr);
-                                    cache.put(host.to_string(), Some(*socket_addr));
-                                    vec![*socket_addr]
-                                })
-                                .unwrap_or_else(|| {
-                                    log::error!(target: "lookup", "{host} -> failed to lookup");
-                                    vec![]
+                                .cloned()
+                                .ok_or_else(|| {
+                                    "no socket_addr found in return value of lookup_host function"
+                                        .to_string()
                                 })
                         })
-                        .map_err(|e| e.into()),
+                        .map(|socket_addr| {
+                            log::info!(target: "lookup", "{host} -> {}", &socket_addr);
+                            cache.put(host.to_string(), Some(socket_addr));
+                            vec![socket_addr]
+                        })
+                        .map_err(|e| {
+                            log::error!(target: "lookup", "{host} -> failed to lookup: {e}");
+                            e
+                        })
+                        .or(Ok(Vec::new())),
                 },
             }
         })
@@ -168,11 +161,11 @@ fn regex_from_html_get_ip() {
     let html =
         r#"<a href="https://www.ipaddress.com/ipv4/220.181.38.251">220.181.38.251</a>"#.to_string();
     assert_eq!(
-        capture_ip_from_html_plain(&html),
-        Some("220.181.38.251".parse().unwrap())
+        capture_ip_from_html_plain(html).unwrap(),
+        "220.181.38.251".parse::<IpAddr>().unwrap()
     );
     let html = r#"<a href="https://www.ipaddress.com/ipv4/">"#.to_string();
-    assert_eq!(capture_ip_from_html_plain(&html), None);
+    assert!(capture_ip_from_html_plain(html).is_err());
 }
 
 #[cfg(test)]

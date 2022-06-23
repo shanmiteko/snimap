@@ -59,26 +59,36 @@ impl ClientPair {
 async fn forward(
     client: &AwcClient,
     sni: &str,
-    head: &RequestHead,
+    RequestHead {
+        method,
+        uri,
+        version,
+        headers,
+        ..
+    }: RequestHead,
     payload: web::Payload,
 ) -> Result<HttpResponse, AnyError> {
-    let awc_request = client
-        .request_from(
+    let mut awc_request = client
+        .request(
+            method.clone(),
             Uri::try_from(format!(
                 "{}://{}{}",
-                head.uri.scheme_str().unwrap_or("https"),
+                uri.scheme_str().unwrap_or("https"),
                 sni,
-                head.uri
-                    .path_and_query()
+                uri.path_and_query()
                     .unwrap_or(&PathAndQuery::from_static("/"))
             ))?,
-            head,
         )
         .no_decompress();
-    let (method, version) = (
-        awc_request.get_method().to_owned(),
-        awc_request.get_version().to_owned(),
-    );
+    let host = headers.get(header::HOST).unwrap().clone();
+    for (nhk, nhv) in headers.into_iter() {
+        match awc_request.headers_mut().get_mut(&nhk) {
+            Some(hv) => *hv = format!("{};{}", hv.to_str()?, nhv.to_str()?).try_into()?,
+            None => {
+                awc_request.headers_mut().insert(nhk, nhv);
+            }
+        }
+    }
     let awc_response = match awc_request.send_stream(payload).await {
         Ok(r) => {
             log::info!(
@@ -86,11 +96,9 @@ async fn forward(
                 "{} \"{} {} {:?}\" host: {:?} {} {:?}",
                 sni,
                 method,
-                head.uri.path(),
+                uri.path(),
                 version,
-                head.headers()
-                    .get(header::HOST)
-                    .unwrap(),
+                host,
                 r.status(),
                 r.version(),
             );
@@ -102,11 +110,9 @@ async fn forward(
                 "{} \"{} {} {:?}\" host: {:?} error: {}",
                 sni,
                 method,
-                head.uri.path(),
+                uri.path(),
                 version,
-                head.headers()
-                    .get(header::HOST)
-                    .unwrap(),
+                host,
                 e
             );
             return Err(e.into());
@@ -114,7 +120,7 @@ async fn forward(
     };
     let mut response = HttpResponse::build(awc_response.status());
     for (header_name, header_value) in awc_response.headers().iter() {
-        response.insert_header((header_name.clone(), header_value.clone()));
+        response.append_header((header_name.clone(), header_value.clone()));
     }
     Ok(response.streaming(awc_response))
 }
@@ -138,10 +144,8 @@ pub async fn reverse_proxy(
                 head.headers_mut()
                     .insert(header::HOST, header::HeaderValue::from_str(host)?);
                 match sni_maybe_none {
-                    Some(sni) => {
-                        forward(client_pair.client_enable_sni(), sni, &head, payload).await
-                    }
-                    None => forward(client_pair.client_disable_sni(), host, &head, payload).await,
+                    Some(sni) => forward(client_pair.client_enable_sni(), sni, head, payload).await,
+                    None => forward(client_pair.client_disable_sni(), host, head, payload).await,
                 }
             }
             None => Ok(HttpResponse::Forbidden()
@@ -309,5 +313,47 @@ mod tests {
         .unwrap();
 
         assert!(dbg!(body).contains("test_reverse_proxy_post"))
+    }
+
+    #[actix_web::test]
+    async fn test_reverse_proxy_cookie() {
+        use actix_web::body::to_bytes;
+
+        let mut sni_map = SniMap::new();
+        sni_map.insert("httpbin.org".to_string(), Some("httpbin.org".to_string()));
+        let dns_cache = DnsCache::new();
+        let sni_map_data = Data::new(sni_map);
+        let (client_config_enable_sni, client_config_disable_sni) = (
+            Arc::new(rustls_client_config()),
+            Arc::new(rustls_client_config().disable_sni()),
+        );
+        let mut srv = test::init_service(
+            App::new()
+                .app_data(sni_map_data.clone())
+                .app_data(Data::new(ClientPair::new(
+                    client_config_enable_sni.clone(),
+                    client_config_disable_sni.clone(),
+                    dns_cache,
+                )))
+                .default_service(to(reverse_proxy)),
+        )
+        .await;
+
+        let test_req = test::TestRequest::get()
+            .uri("/cookies")
+            .insert_header(("host", "httpbin.org"))
+            .insert_header(("cookie", "a=b; c=d; e=fffff"));
+
+        let resp = test::call_service(&mut srv, test_req.to_request()).await;
+
+        let body = String::from_utf8(
+            to_bytes(resp.into_body())
+                .await
+                .expect("body to bytes")
+                .to_ascii_lowercase(),
+        )
+        .unwrap();
+
+        assert!(dbg!(body).contains("fffff"))
     }
 }
