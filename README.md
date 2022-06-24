@@ -79,10 +79,6 @@ name = "Pixiv"
 [[groups.mappings]]
 hostname = "pixiv.net"
 sni = "www.fanbox.cc"
-
-[[groups.mappings]]
-hostname = "i.pximg.net"
-sni = "s.pximg.net"
 ```
 
 ## How to Build

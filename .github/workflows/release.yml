@@ -17,7 +17,7 @@ jobs:
           - build: linux
             os: ubuntu-18.04
             rust: nightly
-            target: x86_64-unknown-linux-musl
+            target: x86_64-unknown-linux-gnu
             archive-name: snimap-linux.tar.gz
           - build: macos
             os: macos-latest
@@ -50,7 +50,7 @@ jobs:
 
       - name: Strip binary (linux and macos)
         if: matrix.build == 'linux' || matrix.build == 'macos'
-        run: strip "target/${{ matrix.target }}/release/-render"
+        run: strip "target/${{ matrix.target }}/release/snimap"
 
       - name: Build archive
         shell: bash
