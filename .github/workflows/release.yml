@@ -56,14 +56,14 @@ jobs:
         shell: bash
         run: |
           mkdir archive
-          cp LICENSE README.md archive/
+          cp LICENSE README.md ./private/ca.pem archive/
           cd archive
           if [ "${{ matrix.build }}" = "windows" ]; then
             cp "../target/${{ matrix.target }}/release/snimap.exe" ./
-            7z a "${{ matrix.archive-name }}" LICENSE README.md snimap.exe
+            7z a "${{ matrix.archive-name }}" LICENSE README.md snimap.exe ca.pem
           else
             cp "../target/${{ matrix.target }}/release/snimap" ./
-            tar -czf "${{ matrix.archive-name }}" LICENSE README.md snimap
+            tar -czf "${{ matrix.archive-name }}" LICENSE README.md snimap ca.pem
           fi
       - name: Upload archive
         uses: actions/upload-artifact@v1
