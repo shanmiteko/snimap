@@ -203,7 +203,7 @@ impl Default for Config {
             ),
             Group::new(
                 "Github",
-                None,
+                Some(false),
                 None,
                 [
                     "avatars.githubusercontent.com",
@@ -243,6 +243,7 @@ impl Default for Config {
                 Some(false),
                 None,
                 [
+                    "wikipedia.org",
                     "zh.wikipedia.org",
                     "en.wikipedia.org",
                     "wikimedia.org",
@@ -286,33 +287,15 @@ impl Default for Config {
                 ],
             ),
             Group::new(
-                "Iwara",
-                None,
-                None,
-                vec![
-                    Mapping {
-                        enable: None,
-                        enable_sni: None,
-                        hostname: "iwara.tv".to_string(),
-                        sni: None,
-                    },
-                    Mapping {
-                        enable: None,
-                        enable_sni: None,
-                        hostname: "i.iwara.tv".to_string(),
-                        sni: Some("iwara.tv".to_string()),
-                    },
-                ],
-            ),
-            Group::new(
                 "Twich",
-                None,
+                Some(false),
                 None,
                 [
                     "twitch.tv",
                     "www.twitch.tv",
                     "static.twitchcdn.net",
                     "gql.twitch.tv",
+                    "passport.twitch.tv",
                 ]
                 .into_iter()
                 .map(Mapping::new)
