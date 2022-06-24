@@ -1,5 +1,6 @@
 # Snimap - Reverse Proxy
 [![ci](https://github.com/shanmiteko/snimap/actions/workflows/ci.yml/badge.svg)](https://github.com/shanmiteko/snimap/actions/workflows/ci.yml)
+[![build](https://github.com/shanmiteko/snimap/actions/workflows/release.yml/badge.svg)](https://github.com/shanmiteko/snimap/actions/workflows/release.yml)
 
 白名单机制的本地HTTPS反向代理，可对HTTPS请求的[SNI](https://en.wikipedia.org/wiki/Server_Name_Indication)进行[修改](https://en.wikipedia.org/wiki/Domain_fronting)或去除以突破互联网审查
 
