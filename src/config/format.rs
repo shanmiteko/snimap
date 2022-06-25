@@ -217,6 +217,7 @@ impl Default for Config {
                     "gist.githubusercontent.com",
                     "github.com",
                     "github.githubassets.com",
+                    "objects.githubusercontent.com",
                     "raw.githubusercontent.com",
                     "user-images.githubusercontent.com",
                 ]

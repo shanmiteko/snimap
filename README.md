@@ -14,7 +14,32 @@
 - [pixiv](https://pixiv.net)
 - [twitch](https://twitch.tv)
 
-可在配置文件中添加更多网站
+可在[配置文件](#配置文件)中添加更多网站
+
+## How to use
+**安装ssl根证书**
+
+证书文件`ca.crt`
+
+**运行snimap**
+
+授予执行权限
+
+### windows
+以管理员方式运行
+
+### linux
+使用`sudo`
+
+*注意此时的配置文件在root用户目录内*
+
+或者使用`setcap`授予更小粒度的权限 ([capabilities](https://man7.org/linux/man-pages/man7/capabilities.7.html))
+```
+$ sudo setcap 'cap_dac_override+ep cap_net_bind_service=+ep' ./target/release/snimap
+```
+完成后即可用非root用户运行
+
+## 配置文件
 
 **配置文件位置**
 
@@ -85,8 +110,9 @@ sni = "www.fanbox.cc"
 ## How to Build
 On OpenSUSE
 ```bash
+$ git clone git@github.com:shanmiteko/snimap.git --depth=1
 $ cargo build --release
 $ sudo zypper install libcap2
-$ sudo setcap 'CAP_DAC_OVERRIDE+ep cap_net_bind_service=+ep' ./target/release/snimap
-$ cargo run
+$ sudo setcap 'cap_dac_override+ep cap_net_bind_service=+ep' ./target/release/snimap
+$ cargo run --release
 ```

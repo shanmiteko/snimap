@@ -58,6 +58,7 @@ async fn main() -> Result<(), AnyError> {
             CtrlC::new()
                 .expect("Failed to install Ctrl-C handler")
                 .await;
+            log::info!(target: "proxy", "waiting for server stop ...");
             server_handle.stop(true).await;
             edit_hosts(&Vec::new()).await?;
             log::info!(target: "proxy", "restore hosts");
