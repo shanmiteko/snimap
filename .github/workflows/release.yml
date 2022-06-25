@@ -5,30 +5,33 @@ on:
     workflows: [ci]
     types: [completed]
 
+env:
+  release-name: snimap
+
 jobs:
   build:
     name: build
     runs-on: ${{ matrix.os }}
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: github.event.workflow_run.conclusion == 'success'
     strategy:
       matrix:
         build: [linux, macos, windows]
         include:
           - build: linux
-            os: ubuntu-18.04
+            os: ubuntu-latest
             rust: nightly
             target: x86_64-unknown-linux-gnu
-            archive-name: snimap-linux.tar.gz
+            archive-name: linux.tar.gz
           - build: macos
             os: macos-latest
             rust: nightly
             target: x86_64-apple-darwin
-            archive-name: snimap-macos.tar.gz
+            archive-name: macos.tar.gz
           - build: windows
-            os: windows-2019
+            os: windows-latest
             rust: nightly-x86_64-msvc
             target: x86_64-pc-windows-msvc
-            archive-name: snimap-windows.7z
+            archive-name: windows.7z
       fail-fast: false
 
     steps:
@@ -50,20 +53,21 @@ jobs:
 
       - name: Strip binary (linux and macos)
         if: matrix.build == 'linux' || matrix.build == 'macos'
-        run: strip "target/${{ matrix.target }}/release/snimap"
+        run: strip "target/${{ matrix.target }}/release/${{ env.release-name }}"
 
       - name: Build archive
         shell: bash
         run: |
           mkdir archive
-          cp LICENSE README.md ./private/ca.pem archive/
+          cp LICENSE README.md archive/
+          cp private/ca.pem archive/ca.crt
           cd archive
           if [ "${{ matrix.build }}" = "windows" ]; then
-            cp "../target/${{ matrix.target }}/release/snimap.exe" ./
-            7z a "${{ matrix.archive-name }}" LICENSE README.md snimap.exe ca.pem
+            cp "../target/${{ matrix.target }}/release/${{ env.release-name }}.exe" ./
+            7z a "${{ matrix.archive-name }}" LICENSE README.md ${{ env.release-name }}.exe ca.crt
           else
-            cp "../target/${{ matrix.target }}/release/snimap" ./
-            tar -czf "${{ matrix.archive-name }}" LICENSE README.md snimap ca.pem
+            cp "../target/${{ matrix.target }}/release/${{ env.release-name }}" ./
+            tar -czf "${{ matrix.archive-name }}" LICENSE README.md ${{ env.release-name }} ca.crt
           fi
       - name: Upload archive
         uses: actions/upload-artifact@v1
