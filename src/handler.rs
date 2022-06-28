@@ -1,11 +1,16 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{config::SniMap, error::AnyError, resolver::DnsCache};
+use crate::{
+    config::{Sni, SniMap},
+    error::AnyError,
+    resolver::SniMapResolver,
+};
 use actix_tls::connect::{Connector as ActixTlsConnector, Resolver};
 use actix_web::{
     dev::RequestHead,
     http::{header, uri::PathAndQuery, Uri, Version},
-    web, HttpRequest, HttpResponse,
+    web::{Data, Payload},
+    HttpRequest, HttpResponse,
 };
 use awc::{Client as AwcClient, Connector as AwcConnector};
 use rustls::ClientConfig;
@@ -17,14 +22,14 @@ impl ClientPair {
     pub fn new(
         client_config_enable_sni: Arc<ClientConfig>,
         client_config_disable_sni: Arc<ClientConfig>,
-        dns_cache: DnsCache,
+        snimap_resolver: SniMapResolver,
     ) -> Self {
         let client_enable_sni = AwcClient::builder()
             .timeout(Duration::from_secs(30))
             .connector(
                 AwcConnector::new()
                     .connector(
-                        ActixTlsConnector::new(Resolver::custom(dns_cache.clone())).service(),
+                        ActixTlsConnector::new(Resolver::custom(snimap_resolver.clone())).service(),
                     )
                     .timeout(Duration::from_secs(30))
                     .rustls(client_config_enable_sni),
@@ -36,7 +41,7 @@ impl ClientPair {
             .timeout(Duration::from_secs(30))
             .connector(
                 AwcConnector::new()
-                    .connector(ActixTlsConnector::new(Resolver::custom(dns_cache)).service())
+                    .connector(ActixTlsConnector::new(Resolver::custom(snimap_resolver)).service())
                     .timeout(Duration::from_secs(30))
                     .rustls(client_config_disable_sni),
             )
@@ -66,7 +71,7 @@ async fn forward(
         headers,
         ..
     }: RequestHead,
-    payload: web::Payload,
+    payload: Payload,
 ) -> Result<HttpResponse, AnyError> {
     let mut awc_request = client
         .request(
@@ -127,9 +132,9 @@ async fn forward(
 
 pub async fn reverse_proxy(
     request: HttpRequest,
-    payload: web::Payload,
-    sni_map: web::Data<SniMap>,
-    client_pair: web::Data<ClientPair>,
+    payload: Payload,
+    snimap: Data<SniMap>,
+    client_pair: Data<ClientPair>,
 ) -> Result<HttpResponse, AnyError> {
     match match request.version() {
         Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => request
@@ -138,20 +143,25 @@ pub async fn reverse_proxy(
             .map(|h| h.to_str().unwrap()),
         _ => request.uri().host(),
     } {
-        Some(host) => match sni_map.get(host) {
-            Some(sni_maybe_none) => {
+        Some(host) => match snimap.get(host) {
+            Some(sni) => {
                 let mut head = request.head().clone();
                 head.headers_mut()
                     .insert(header::HOST, header::HeaderValue::from_str(host)?);
-                match sni_maybe_none {
-                    Some(sni) => forward(client_pair.client_enable_sni(), sni, head, payload).await,
-                    None => forward(client_pair.client_disable_sni(), host, head, payload).await,
+                match sni {
+                    Sni::Disable => {
+                        forward(client_pair.client_disable_sni(), host, head, payload).await
+                    }
+                    Sni::Override(sni) | Sni::Remain(sni) => {
+                        forward(client_pair.client_enable_sni(), sni, head, payload).await
+                    }
                 }
             }
-            None => Ok(HttpResponse::Forbidden()
-                .body(format!("'host=\"{host}\"' not enabled in config.toml"))),
+            None => Ok(HttpResponse::Forbidden().body(format!(
+                "`hostname = \"{host}\"` is not enabled in config.toml"
+            ))),
         },
-        None => Ok(HttpResponse::NotFound().body("'host=xxx' not found in header")),
+        None => Ok(HttpResponse::NotFound().body("cannot find 'host=xxx' in header")),
     }
 }
 
@@ -166,35 +176,29 @@ mod tests {
     };
 
     use crate::{
-        config::SniMap,
+        config::{Mapping, SniMap, Switchable},
         handler::{reverse_proxy, ClientPair},
-        resolver::DnsCache,
+        resolver::SniMapResolver,
         tlscert::{rustls_client_config, DisableSni},
     };
 
     async fn test_reverse_proxy_use(
-        hostname: Option<&str>,
-        sni: Option<&str>,
+        snimap: SniMap,
         headers: Option<Vec<(&str, &str)>>,
     ) -> http::StatusCode {
-        let mut sni_map = SniMap::new();
-        let mut dns_cache = DnsCache::new();
-        if let Some(host) = hostname {
-            sni_map.insert(host.into(), sni.map(|s| s.into()));
-            dns_cache = DnsCache::new().with_whitelist(&[host]);
-        }
-        let sni_map_data = Data::new(sni_map);
+        let snimap_resolver = SniMapResolver::from_snimap(&snimap);
+        let snimap_data = Data::new(snimap);
         let (client_config_enable_sni, client_config_disable_sni) = (
             Arc::new(rustls_client_config()),
             Arc::new(rustls_client_config().disable_sni()),
         );
         let mut srv = test::init_service(
             App::new()
-                .app_data(sni_map_data.clone())
+                .app_data(snimap_data.clone())
                 .app_data(Data::new(ClientPair::new(
                     client_config_enable_sni.clone(),
                     client_config_disable_sni.clone(),
-                    dns_cache,
+                    snimap_resolver,
                 )))
                 .default_service(to(reverse_proxy)),
         )
@@ -218,7 +222,7 @@ mod tests {
     #[actix_web::test]
     async fn test_reverse_proxy_no_host() {
         assert_eq!(
-            test_reverse_proxy_use(Some("example.com"), None, None).await,
+            test_reverse_proxy_use(Mapping::new("example.com").into(), None).await,
             http::StatusCode::NOT_FOUND
         );
     }
@@ -226,7 +230,7 @@ mod tests {
     #[actix_web::test]
     async fn test_reverse_proxy_not_enabled_in_config() {
         assert_eq!(
-            test_reverse_proxy_use(None, None, Some(vec![("host", "example.com")])).await,
+            test_reverse_proxy_use(SniMap::new(), Some(vec![("host", "example.com")])).await,
             http::StatusCode::FORBIDDEN
         );
     }
@@ -235,8 +239,7 @@ mod tests {
     async fn test_reverse_proxy_enable_sni() {
         assert!(
             test_reverse_proxy_use(
-                Some("www.duckduckgo.com"),
-                Some("www.duckduckgo.com"),
+                Mapping::new("www.duckduckgo.com").into(),
                 Some(vec![("host", "www.duckduckgo.com")])
             )
             .await
@@ -249,8 +252,7 @@ mod tests {
     async fn test_reverse_proxy_disable_sni() {
         assert!(
             test_reverse_proxy_use(
-                Some("en.wikipedia.org"),
-                None,
+                Mapping::new("en.wikipedia.org").disable_sni().into(),
                 Some(vec![("host", "en.wikipedia.org")])
             )
             .await
@@ -263,8 +265,9 @@ mod tests {
     async fn test_reverse_proxy_enable_sni_domain_fronting() {
         assert!(
             test_reverse_proxy_use(
-                Some("www.pixiv.net"),
-                Some("www.fanbox.cc"),
+                Mapping::new("www.pixiv.net")
+                    .override_sni("www.fanbox.cc")
+                    .into(),
                 Some(vec![("host", "www.pixiv.net")])
             )
             .await
@@ -277,21 +280,20 @@ mod tests {
     async fn test_reverse_proxy_post() {
         use actix_web::body::to_bytes;
 
-        let mut sni_map = SniMap::new();
-        sni_map.insert("httpbin.org".to_string(), Some("httpbin.org".to_string()));
-        let dns_cache = DnsCache::new();
-        let sni_map_data = Data::new(sni_map);
+        let snimap = Mapping::new("httpbin.org").into();
+        let snimap_resolver = SniMapResolver::from_snimap(&snimap);
+        let snimap_data = Data::new(snimap);
         let (client_config_enable_sni, client_config_disable_sni) = (
             Arc::new(rustls_client_config()),
             Arc::new(rustls_client_config().disable_sni()),
         );
         let mut srv = test::init_service(
             App::new()
-                .app_data(sni_map_data.clone())
+                .app_data(snimap_data.clone())
                 .app_data(Data::new(ClientPair::new(
                     client_config_enable_sni.clone(),
                     client_config_disable_sni.clone(),
-                    dns_cache,
+                    snimap_resolver,
                 )))
                 .default_service(to(reverse_proxy)),
         )
@@ -319,21 +321,20 @@ mod tests {
     async fn test_reverse_proxy_cookie() {
         use actix_web::body::to_bytes;
 
-        let mut sni_map = SniMap::new();
-        sni_map.insert("httpbin.org".to_string(), Some("httpbin.org".to_string()));
-        let dns_cache = DnsCache::new();
-        let sni_map_data = Data::new(sni_map);
+        let snimap = Mapping::new("httpbin.org").into();
+        let snimap_resolver = SniMapResolver::from_snimap(&snimap);
+        let snimap_data = Data::new(snimap);
         let (client_config_enable_sni, client_config_disable_sni) = (
             Arc::new(rustls_client_config()),
             Arc::new(rustls_client_config().disable_sni()),
         );
         let mut srv = test::init_service(
             App::new()
-                .app_data(sni_map_data.clone())
+                .app_data(snimap_data.clone())
                 .app_data(Data::new(ClientPair::new(
                     client_config_enable_sni.clone(),
                     client_config_disable_sni.clone(),
-                    dns_cache,
+                    snimap_resolver,
                 )))
                 .default_service(to(reverse_proxy)),
         )

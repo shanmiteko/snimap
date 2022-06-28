@@ -1,11 +1,14 @@
-use std::{env, sync::Arc, time::Duration};
+use std::{collections::HashSet, env, sync::Arc, time::Duration};
 
-use actix_web::{web, App, HttpServer};
+use actix_web::{
+    web::{to, Data},
+    App, HttpServer,
+};
 use async_ctrlc::CtrlC;
 use config::{Config, SniMap};
 use error::AnyError;
 use handler::{reverse_proxy, ClientPair};
-use resolver::DnsCache;
+use resolver::SniMapResolver;
 use tlscert::{cert_generate, rustls_client_config, rustls_server_config, DisableSni};
 use utils::edit_hosts;
 
@@ -21,29 +24,32 @@ mod utils;
 async fn main() -> Result<(), AnyError> {
     init_logger();
 
-    let sni_map = web::Data::new(SniMap::from(Config::from_file().await?));
+    let snimap = SniMap::from(Config::from_default_file().await?);
 
-    let hostnames = sni_map.hostnames();
+    let snimap_resolver = SniMapResolver::from_snimap(&snimap);
+
+    let snimap = Data::new(SniMap::from(Config::from_default_file().await?));
+
+    let hostnames = snimap.hostnames();
 
     edit_hosts(&hostnames).await?;
 
     let cert = cert_generate(&hostnames).await?;
 
-    let (client_config_enable_sni, client_config_disable_sni, dns_cache) = (
+    let (client_config_enable_sni, client_config_disable_sni) = (
         Arc::new(rustls_client_config()),
         Arc::new(rustls_client_config().disable_sni()),
-        DnsCache::new().with_whitelist(&hostnames),
     );
 
     let server = HttpServer::new(move || {
         App::new()
-            .app_data(sni_map.clone())
-            .app_data(web::Data::new(ClientPair::new(
+            .app_data(snimap.clone())
+            .app_data(Data::new(ClientPair::new(
                 client_config_enable_sni.clone(),
                 client_config_disable_sni.clone(),
-                dns_cache.clone(),
+                snimap_resolver.clone(),
             )))
-            .default_service(web::to(reverse_proxy))
+            .default_service(to(reverse_proxy))
     })
     .bind_rustls("127.0.0.1:443", rustls_server_config(cert)?)?
     .disable_signals()
@@ -60,7 +66,7 @@ async fn main() -> Result<(), AnyError> {
                 .await;
             log::info!(target: "proxy", "waiting for server stop ...");
             server_handle.stop(true).await;
-            edit_hosts(&Vec::new()).await?;
+            edit_hosts(&HashSet::new()).await?;
             log::info!(target: "proxy", "restore hosts");
             Ok::<(), AnyError>(())
         },

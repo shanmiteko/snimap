@@ -1,4 +1,4 @@
-use std::{fs, io::Error, path::PathBuf};
+use std::{collections::HashSet, fs, io::Error, path::PathBuf};
 
 use crate::{dirs::hosts_path, error::AnyError};
 
@@ -17,7 +17,7 @@ pub fn create_dir_all(path: &PathBuf) -> Result<(), Error> {
     fs::create_dir_all(path)
 }
 
-pub async fn edit_hosts(hostnames: &[&str]) -> Result<(), AnyError> {
+pub async fn edit_hosts(hostnames: &HashSet<&str>) -> Result<(), AnyError> {
     let hosts_path = hosts_path().ok_or("hosts file not found")?;
 
     let mut hosts_string = read_to_string(&hosts_path)?;
@@ -29,7 +29,7 @@ pub async fn edit_hosts(hostnames: &[&str]) -> Result<(), AnyError> {
     Ok(())
 }
 
-fn gen_hosts(old_hosts: &str, hostnames: &[&str]) -> String {
+fn gen_hosts(old_hosts: &str, hostnames: &HashSet<&str>) -> String {
     let mut is_will_change = false;
     let flag = "# Auto Generate by snimap";
 
@@ -76,13 +76,12 @@ fn test_gen_hosts() {
 # ...
 127.0.0.1\tlocalhost
 ";
-    let hostnames = vec!["hostname1", "hostname2"];
+    let hostnames = vec!["hostname"].into_iter().collect();
     let new_hosts = "# ...
 # ...
 127.0.0.1\tlocalhost
 # Auto Generate by snimap
-127.0.0.1\thostname1
-127.0.0.1\thostname2
+127.0.0.1\thostname
 # Auto Generate by snimap";
     assert_eq!(gen_hosts(old_hosts, &hostnames), new_hosts);
     assert_eq!(gen_hosts(new_hosts, &hostnames), new_hosts);

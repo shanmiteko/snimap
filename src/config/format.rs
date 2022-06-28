@@ -1,9 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_derive::{Deserialize, Serialize};
 
 type Hostname = String;
-type Sni = Option<Hostname>;
+
+#[derive(PartialEq, Eq, Debug)]
+pub enum Sni {
+    Disable,
+    Override(Hostname),
+    Remain(Hostname),
+}
 
 pub struct SniMap(HashMap<Hostname, Sni>);
 
@@ -31,40 +37,45 @@ pub struct Mapping {
     sni: Option<String>,
 }
 
-trait Switchable {
-    fn enable(&self) -> bool;
-    fn enable_sni(&self) -> bool;
-}
-
-impl Switchable for Config {
-    fn enable(&self) -> bool {
-        self.enable.unwrap_or(true)
+pub trait Switchable: Sized {
+    fn enable(&self) -> Option<bool>;
+    fn enable_sni(&self) -> Option<bool>;
+    fn enable_mut(&mut self) -> &mut Option<bool>;
+    fn enable_sni_mut(&mut self) -> &mut Option<bool>;
+    fn enabled(&self) -> bool {
+        self.enable().unwrap_or(true)
     }
-
-    fn enable_sni(&self) -> bool {
-        self.enable_sni.unwrap_or(true)
+    fn enabled_sni(&self) -> bool {
+        self.enable_sni().unwrap_or(true)
     }
-}
-
-impl Switchable for Group {
-    fn enable(&self) -> bool {
-        self.enable.unwrap_or(true)
-    }
-
-    fn enable_sni(&self) -> bool {
-        self.enable_sni.unwrap_or(true)
+    fn disable_sni(mut self) -> Self {
+        *self.enable_sni_mut() = Some(false);
+        self
     }
 }
 
-impl Switchable for Mapping {
-    fn enable(&self) -> bool {
-        self.enable.unwrap_or(true)
-    }
+macro_rules! impl_switchable {
+    ($($i:ident),*) => {
+        $(impl Switchable for $i {
+            fn enable(&self) -> Option<bool> {
+                self.enable
+            }
 
-    fn enable_sni(&self) -> bool {
-        self.enable_sni.unwrap_or(true)
-    }
+            fn enable_sni(&self) -> Option<bool> {
+                self.enable_sni
+            }
+
+            fn enable_mut(&mut self) -> &mut Option<bool> {
+                &mut self.enable
+            }
+
+            fn enable_sni_mut(&mut self) -> &mut Option<bool> {
+                &mut self.enable_sni
+            }
+        })*
+    };
 }
+impl_switchable!(Config, Group, Mapping);
 
 impl Config {
     pub fn new(groups: Vec<Group>) -> Self {
@@ -77,17 +88,12 @@ impl Config {
 }
 
 impl Group {
-    pub fn new(
-        name: &str,
-        enable_sni: Option<bool>,
-        sni: Option<&str>,
-        mappings: Vec<Mapping>,
-    ) -> Self {
+    pub fn new(name: &str, mappings: Vec<Mapping>) -> Self {
         Self {
             name: name.to_string(),
             enable: None,
-            enable_sni,
-            sni: sni.map(ToString::to_string),
+            enable_sni: None,
+            sni: None,
             mappings,
         }
     }
@@ -102,6 +108,11 @@ impl Mapping {
             sni: None,
         }
     }
+
+    pub fn override_sni(mut self, sni: &str) -> Self {
+        self.sni = Some(sni.to_string());
+        self
+    }
 }
 
 impl SniMap {
@@ -109,8 +120,18 @@ impl SniMap {
         Self(HashMap::new())
     }
 
-    pub fn hostnames(&self) -> Vec<&str> {
+    pub fn hostnames(&self) -> HashSet<&str> {
         self.0.keys().map(|s| s.as_str()).collect()
+    }
+
+    pub fn overrided_sni(&self) -> HashSet<&str> {
+        self.0
+            .values()
+            .filter_map(|sni| match sni {
+                Sni::Disable | Sni::Remain(_) => None,
+                Sni::Override(host) => Some(host.as_str()),
+            })
+            .collect()
     }
 
     pub fn get(&self, hostname: &str) -> Option<&Sni> {
@@ -132,24 +153,29 @@ impl SniMap {
 
 impl From<Mapping> for SniMap {
     fn from(dns: Mapping) -> Self {
-        let mut sni_map = SniMap::new();
-        if dns.enable() {
-            let enable_sni = dns.enable_sni();
+        let mut snimap = SniMap::new();
+        if dns.enabled() {
+            let enable_sni = dns.enabled_sni();
             let Mapping { hostname, sni, .. } = dns;
-            sni_map.insert(
-                hostname.clone(),
-                enable_sni.then_some(sni.unwrap_or(hostname)),
-            );
+            let sni = match enable_sni {
+                true => match sni {
+                    Some(sniname) if sniname == hostname => Sni::Remain(hostname.clone()),
+                    Some(sniname) => Sni::Override(sniname),
+                    None => Sni::Remain(hostname.clone()),
+                },
+                _ => Sni::Disable,
+            };
+            snimap.insert(hostname, sni)
         }
-        sni_map
+        snimap
     }
 }
 
 impl From<Group> for SniMap {
     fn from(group: Group) -> Self {
-        let mut sni_map = SniMap::new();
-        if group.enable() {
-            let enable_sni = group.enable_sni();
+        let mut snimap = SniMap::new();
+        if group.enabled() {
+            let enable_sni = group.enabled_sni();
             let Group { mappings, sni, .. } = group;
             mappings.into_iter().for_each(|mut d: Mapping| {
                 if enable_sni {
@@ -160,27 +186,27 @@ impl From<Group> for SniMap {
                     d.enable_sni = Some(false);
                     d.sni = None;
                 }
-                sni_map.merge(d);
+                snimap.merge(d);
             });
         }
-        sni_map
+        snimap
     }
 }
 
 impl From<Config> for SniMap {
     fn from(config: Config) -> Self {
-        let mut sni_map = SniMap::new();
-        if config.enable() {
-            let enable_sni = config.enable_sni();
+        let mut snimap = SniMap::new();
+        if config.enabled() {
+            let enable_sni = config.enabled_sni();
             config.groups.into_iter().for_each(|mut g: Group| {
                 if !enable_sni {
                     g.enable_sni = Some(false);
                     g.sni = None;
                 }
-                sni_map.merge(g);
+                snimap.merge(g);
             });
         }
-        sni_map
+        snimap
     }
 }
 
@@ -189,8 +215,6 @@ impl Default for Config {
         Self::new(vec![
             Group::new(
                 "Duckduckgo",
-                None,
-                None,
                 [
                     "duck.com",
                     "duckduckgo.com",
@@ -203,8 +227,6 @@ impl Default for Config {
             ),
             Group::new(
                 "Github",
-                Some(false),
-                None,
                 [
                     "avatars.githubusercontent.com",
                     "avatars0.githubusercontent.com",
@@ -224,11 +246,10 @@ impl Default for Config {
                 .into_iter()
                 .map(Mapping::new)
                 .collect(),
-            ),
+            )
+            .disable_sni(),
             Group::new(
                 "OneDrive",
-                None,
-                None,
                 [
                     "onedrive.com",
                     "api.onedrive.com",
@@ -241,8 +262,6 @@ impl Default for Config {
             ),
             Group::new(
                 "Wikipedia",
-                Some(false),
-                None,
                 [
                     "wikipedia.org",
                     "zh.wikipedia.org",
@@ -255,42 +274,19 @@ impl Default for Config {
                 .into_iter()
                 .map(Mapping::new)
                 .collect(),
-            ),
+            )
+            .disable_sni(),
             Group::new(
                 "Pixiv",
-                None,
-                None,
                 vec![
-                    Mapping {
-                        enable: None,
-                        enable_sni: None,
-                        hostname: "pixiv.net".to_string(),
-                        sni: Some("www.fanbox.cc".to_string()),
-                    },
-                    Mapping {
-                        enable: None,
-                        enable_sni: None,
-                        hostname: "www.pixiv.net".to_string(),
-                        sni: Some("www.fanbox.cc".to_string()),
-                    },
-                    Mapping {
-                        enable: None,
-                        enable_sni: None,
-                        hostname: "accounts.pixiv.net".to_string(),
-                        sni: Some("www.fanbox.cc".to_string()),
-                    },
-                    Mapping {
-                        enable: None,
-                        enable_sni: Some(false),
-                        hostname: "i.pximg.net".to_string(),
-                        sni: Some("s.pximg.net".to_string()),
-                    },
+                    Mapping::new("pixiv.net").override_sni("www.fanbox.cc"),
+                    Mapping::new("www.pixiv.net").override_sni("www.fanbox.cc"),
+                    Mapping::new("accounts.pixiv.net").override_sni("www.fanbox.cc"),
+                    Mapping::new("i.pximg.net").override_sni("s.pximg.net"),
                 ],
             ),
             Group::new(
                 "Twich",
-                Some(false),
-                None,
                 [
                     "twitch.tv",
                     "www.twitch.tv",
@@ -301,13 +297,16 @@ impl Default for Config {
                 .into_iter()
                 .map(Mapping::new)
                 .collect(),
-            ),
+            )
+            .disable_sni(),
         ])
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::config::Sni;
+
     use super::{Config, Group, Mapping, SniMap};
 
     #[test]
@@ -316,49 +315,55 @@ mod tests {
     }
 
     #[test]
-    fn dns_into_sni_map() {
-        let sni_map: SniMap = Mapping {
+    fn dns_into_snimap() {
+        let snimap: SniMap = Mapping {
             enable: Some(false),
             enable_sni: Some(false),
             hostname: "hostname".to_string(),
             sni: Some("sni".to_string()),
         }
         .into();
-        assert_eq!(sni_map.0.len(), 0, "1");
-        assert_eq!(sni_map.get("hostname"), None);
-        assert_eq!(sni_map.get("hostname"), None);
+        assert_eq!(snimap.0.len(), 0, "1");
+        assert_eq!(snimap.get("hostname"), None);
+        assert_eq!(snimap.get("hostname"), None);
 
-        let sni_map: SniMap = Mapping {
+        let snimap: SniMap = Mapping {
             enable: Some(true),
             enable_sni: Some(false),
             hostname: "hostname".to_string(),
             sni: Some("sni".to_string()),
         }
         .into();
-        assert_eq!(sni_map.get("hostname"), Some(&None));
+        assert_eq!(snimap.get("hostname"), Some(&Sni::Disable));
 
-        let sni_map: SniMap = Mapping {
+        let snimap: SniMap = Mapping {
             enable: Some(true),
             enable_sni: Some(true),
             hostname: "hostname".to_string(),
             sni: Some("sni".to_string()),
         }
         .into();
-        assert_eq!(sni_map.get("hostname"), Some(&Some("sni".to_string())));
+        assert_eq!(
+            snimap.get("hostname"),
+            Some(&Sni::Override("sni".to_string()))
+        );
 
-        let sni_map: SniMap = Mapping {
+        let snimap: SniMap = Mapping {
             enable: Some(true),
             enable_sni: Some(true),
             hostname: "hostname".to_string(),
             sni: None,
         }
         .into();
-        assert_eq!(sni_map.get("hostname"), Some(&Some("hostname".to_string())));
+        assert_eq!(
+            snimap.get("hostname"),
+            Some(&Sni::Remain("hostname".to_string()))
+        );
     }
 
     #[test]
     fn group_into_config_map() {
-        let sni_map: SniMap = Group {
+        let snimap: SniMap = Group {
             enable: Some(true),
             enable_sni: Some(false),
             name: "name".to_string(),
@@ -371,12 +376,12 @@ mod tests {
             }],
         }
         .into();
-        assert_eq!(sni_map.get("hostname"), Some(&None));
+        assert_eq!(snimap.get("hostname"), Some(&Sni::Disable));
     }
 
     #[test]
     fn config_into_config_map() {
-        let sni_map: SniMap = Config {
+        let snimap: SniMap = Config {
             enable: Some(true),
             enable_sni: Some(true),
             groups: vec![Group {
@@ -393,6 +398,6 @@ mod tests {
             }],
         }
         .into();
-        assert_eq!(sni_map.get("hostname"), Some(&None));
+        assert_eq!(snimap.get("hostname"), Some(&Sni::Disable));
     }
 }
