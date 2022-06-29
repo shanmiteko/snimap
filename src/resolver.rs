@@ -36,24 +36,22 @@ fn capture_ip_from_html_plain<S: AsRef<str>>(html: S) -> Result<IpAddr, AnyError
         .map_err(Into::into)
 }
 
-enum ResolveResult<LateInitValue = OnceCell<Option<SocketAddr>>> {
-    CGetAddrInfo(LateInitValue),
-    WwwIpaddressCom(LateInitValue),
+enum ResolveResult<LateInitAddr = OnceCell<SocketAddr>> {
+    CGetAddrInfo(LateInitAddr),
+    WwwIpaddressCom(LateInitAddr),
 }
 
 impl ResolveResult {
     pub fn get_or_init(&self, host: &str) -> Option<SocketAddr> {
         match self {
-            ResolveResult::CGetAddrInfo(socket_addr) => *socket_addr.get_or_init(|| {
+            ResolveResult::CGetAddrInfo(socket_addr) => socket_addr.get_or_try_init(|| {
                 lookup_host(host)
                     .map_err(|e| e.to_string())
                     .and_then(|ip_addrs| {
                         ip_addrs
                             .into_iter()
+                            .next()
                             .map(|ip_addr| SocketAddr::new(ip_addr, 443))
-                            .collect::<Vec<SocketAddr>>()
-                            .first()
-                            .cloned()
                             .ok_or_else(|| {
                                 "no socket_addr found in return value of lookup_host function"
                                     .to_string()
@@ -61,26 +59,26 @@ impl ResolveResult {
                     })
                     .map(|socket_addr| {
                         log::info!(target: "lookup", "{host} -> {}", &socket_addr);
-                        Some(socket_addr)
+                        socket_addr
                     })
                     .map_err(|e| {
                         log::error!(target: "lookup", "{host} -> failed to lookup: {e}");
                     })
-                    .unwrap_or(None)
             }),
-            ResolveResult::WwwIpaddressCom(socket_addr) => *socket_addr.get_or_init(|| {
+            ResolveResult::WwwIpaddressCom(socket_addr) => socket_addr.get_or_try_init(|| {
                 ip_lookup_on_ipaddress_com(host)
                     .and_then(capture_ip_from_html_plain)
                     .map(|ip_addr| {
                         log::info!(target: "lookup", "{host} -> {}", &ip_addr);
-                        Some(SocketAddr::new(ip_addr, 443))
+                        SocketAddr::new(ip_addr, 443)
                     })
                     .map_err(|e| {
                         log::error!(target: "lookup", "{host} -> failed to lookup: {e}");
                     })
-                    .unwrap_or(None)
             }),
         }
+        .ok()
+        .cloned()
     }
 }
 

@@ -28,9 +28,9 @@ async fn main() -> Result<(), AnyError> {
 
     let snimap_resolver = SniMapResolver::from_snimap(&snimap);
 
-    let snimap = Data::new(SniMap::from(Config::from_default_file().await?));
+    let snimap_data = Data::new(SniMap::from(Config::from_default_file().await?));
 
-    let hostnames = snimap.hostnames();
+    let hostnames = snimap_data.hostnames();
 
     edit_hosts(&hostnames).await?;
 
@@ -43,7 +43,7 @@ async fn main() -> Result<(), AnyError> {
 
     let server = HttpServer::new(move || {
         App::new()
-            .app_data(snimap.clone())
+            .app_data(snimap_data.clone())
             .app_data(Data::new(ClientPair::new(
                 client_config_enable_sni.clone(),
                 client_config_disable_sni.clone(),
