@@ -1,27 +1,30 @@
+#![feature(result_option_inspect)]
+
 use std::{collections::HashSet, env, sync::Arc, time::Duration};
 
 use actix_web::{
     web::{to, Data},
     App, HttpServer,
 };
+use anyway::AnyResult;
 use async_ctrlc::CtrlC;
 use config::{Config, SniMap};
-use error::AnyError;
+use futures::try_join;
 use handler::{reverse_proxy, ClientPair};
 use resolver::SniMapResolver;
 use tlscert::{cert_generate, rustls_client_config, rustls_server_config, DisableSni};
 use utils::edit_hosts;
 
+mod anyway;
 mod config;
 mod dirs;
-mod error;
 mod handler;
 mod resolver;
 mod tlscert;
 mod utils;
 
 #[actix_web::main]
-async fn main() -> Result<(), AnyError> {
+async fn main() -> AnyResult<()> {
     init_logger();
 
     let snimap = SniMap::from(Config::from_default_file().await?);
@@ -59,7 +62,7 @@ async fn main() -> Result<(), AnyError> {
 
     let server_handle = server.handle();
 
-    futures::try_join!(
+    try_join!(
         async {
             CtrlC::new()
                 .expect("Failed to install Ctrl-C handler")
@@ -68,16 +71,16 @@ async fn main() -> Result<(), AnyError> {
             server_handle.stop(true).await;
             edit_hosts(&HashSet::new()).await?;
             log::info!(target: "proxy", "restore hosts");
-            Ok::<(), AnyError>(())
+            ok!()
         },
         async {
             log::info!(target: "proxy", "start server on :443");
             server.await?;
-            Ok::<(), AnyError>(())
+            ok!()
         }
     )?;
 
-    Ok(())
+    ok!()
 }
 
 fn init_logger() {

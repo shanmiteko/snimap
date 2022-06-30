@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fs, io::Error, path::PathBuf};
 
-use crate::{dirs::hosts_path, error::AnyError};
+use crate::{anyway::AnyResult, dirs::hosts_path, ok};
 
 pub fn read_to_string(path: &PathBuf) -> Result<String, Error> {
     log::debug!("read_to_string {:?}", path);
@@ -17,7 +17,7 @@ pub fn create_dir_all(path: &PathBuf) -> Result<(), Error> {
     fs::create_dir_all(path)
 }
 
-pub async fn edit_hosts(hostnames: &HashSet<&str>) -> Result<(), AnyError> {
+pub async fn edit_hosts(hostnames: &HashSet<&str>) -> AnyResult<()> {
     let hosts_path = hosts_path().ok_or("hosts file not found")?;
 
     let mut hosts_string = read_to_string(&hosts_path)?;
@@ -26,7 +26,7 @@ pub async fn edit_hosts(hostnames: &HashSet<&str>) -> Result<(), AnyError> {
 
     write(&hosts_path, &hosts_string)?;
 
-    Ok(())
+    ok!()
 }
 
 fn gen_hosts(old_hosts: &str, hostnames: &HashSet<&str>) -> String {

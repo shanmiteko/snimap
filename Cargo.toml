@@ -20,7 +20,6 @@ regex = "1.5.6"
 rustls = "0.20.6"
 serde = "1.0.137"
 serde_derive = "1.0.137"
-thiserror = "1.0.31"
 toml = "0.5.9"
 webpki-roots = "0.22.3"
 

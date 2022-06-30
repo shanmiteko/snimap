@@ -10,12 +10,12 @@ use futures::future::LocalBoxFuture;
 use once_cell::sync::{Lazy, OnceCell};
 use regex::Regex;
 
-use crate::{config::SniMap, error::AnyError};
+use crate::{anyway::AnyResult, config::SniMap};
 
 static RE_CAPTURE_IP: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"ipaddress.com/ipv4/((\d+\.){3}\d+)").unwrap());
 
-fn ip_lookup_on_ipaddress_com<S: AsRef<str>>(host: S) -> Result<String, AnyError> {
+fn ip_lookup_on_ipaddress_com<S: AsRef<str>>(host: S) -> AnyResult<String> {
     attohttpc::post("https://www.ipaddress.com/ip-lookup")
         .header("Referer", "https://www.ipaddress.com/ip-lookup")
         .header("Accept-Encoding", "br")
@@ -25,7 +25,7 @@ fn ip_lookup_on_ipaddress_com<S: AsRef<str>>(host: S) -> Result<String, AnyError
         .map_err(Into::into)
 }
 
-fn capture_ip_from_html_plain<S: AsRef<str>>(html: S) -> Result<IpAddr, AnyError> {
+fn capture_ip_from_html_plain<S: AsRef<str>>(html: S) -> AnyResult<IpAddr> {
     RE_CAPTURE_IP
         .captures(html.as_ref())
         .ok_or("err in capture_ip_from_html_plain: no match is found")?
@@ -53,30 +53,20 @@ impl ResolveResult {
                             .next()
                             .map(|ip_addr| SocketAddr::new(ip_addr, 443))
                             .ok_or_else(|| {
-                                "no socket_addr found in return value of lookup_host function"
+                                "no socket_addr found in return value of `lookup_host` function"
                                     .to_string()
                             })
-                    })
-                    .map(|socket_addr| {
-                        log::info!(target: "lookup", "{host} -> {}", &socket_addr);
-                        socket_addr
-                    })
-                    .map_err(|e| {
-                        log::error!(target: "lookup", "{host} -> failed to lookup: {e}");
                     })
             }),
             ResolveResult::WwwIpaddressCom(socket_addr) => socket_addr.get_or_try_init(|| {
                 ip_lookup_on_ipaddress_com(host)
                     .and_then(capture_ip_from_html_plain)
-                    .map(|ip_addr| {
-                        log::info!(target: "lookup", "{host} -> {}", &ip_addr);
-                        SocketAddr::new(ip_addr, 443)
-                    })
-                    .map_err(|e| {
-                        log::error!(target: "lookup", "{host} -> failed to lookup: {e}");
-                    })
+                    .map(|ip_addr| SocketAddr::new(ip_addr, 443))
+                    .map_err(|e| e.to_string())
             }),
         }
+        .inspect(|socket_addr| log::info!(target: "lookup", "{host} -> {socket_addr}"))
+        .inspect_err(|e| log::error!(target: "lookup", "{host} -> failed to lookup: {e}"))
         .ok()
         .cloned()
     }

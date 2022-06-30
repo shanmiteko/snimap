@@ -1,7 +1,7 @@
 use toml::{de::Error as TomlDeError, ser::Error as TomlSerError};
 
+use crate::anyway::AnyResult;
 use crate::dirs;
-use crate::error::AnyError;
 use crate::utils::{create_dir_all, read_to_string, write};
 
 pub use self::format::*;
@@ -9,7 +9,7 @@ pub use self::format::*;
 mod format;
 
 impl Config {
-    pub async fn from_default_file() -> Result<Config, AnyError> {
+    pub async fn from_default_file() -> AnyResult<Config> {
         let config_file = dirs::config_file();
         let config = if config_file.is_file() {
             parse(read_to_string(&config_file)?.as_bytes())?

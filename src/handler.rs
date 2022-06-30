@@ -1,8 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
+    anyway::AnyResult,
     config::{Sni, SniMap},
-    error::AnyError,
     resolver::SniMapResolver,
 };
 use actix_tls::connect::{Connector as ActixTlsConnector, Resolver};
@@ -72,7 +72,7 @@ async fn forward(
         ..
     }: RequestHead,
     payload: Payload,
-) -> Result<HttpResponse, AnyError> {
+) -> AnyResult<HttpResponse> {
     let mut awc_request = client
         .request(
             method.clone(),
@@ -94,8 +94,10 @@ async fn forward(
             }
         }
     }
-    let awc_response = match awc_request.send_stream(payload).await {
-        Ok(r) => {
+    let awc_response = awc_request
+        .send_stream(payload)
+        .await
+        .inspect(|r| {
             log::info!(
                 target: "forward",
                 "{} \"{} {} {:?}\" host: {:?} {} {:?}",
@@ -106,10 +108,9 @@ async fn forward(
                 host,
                 r.status(),
                 r.version(),
-            );
-            r
-        }
-        Err(e) => {
+            )
+        })
+        .inspect_err(|e| {
             log::error!(
                 target: "forward",
                 "{} \"{} {} {:?}\" host: {:?} error: {}",
@@ -119,10 +120,8 @@ async fn forward(
                 version,
                 host,
                 e
-            );
-            return Err(e.into());
-        }
-    };
+            )
+        })?;
     let mut response = HttpResponse::build(awc_response.status());
     for (header_name, header_value) in awc_response.headers().iter() {
         response.append_header((header_name.clone(), header_value.clone()));
@@ -135,7 +134,7 @@ pub async fn reverse_proxy(
     payload: Payload,
     snimap: Data<SniMap>,
     client_pair: Data<ClientPair>,
-) -> Result<HttpResponse, AnyError> {
+) -> AnyResult<HttpResponse> {
     match match request.version() {
         Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => request
             .headers()

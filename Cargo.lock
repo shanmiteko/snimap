@@ -1544,7 +1544,6 @@ dependencies = [
  "rustls",
  "serde",
  "serde_derive",
- "thiserror",
  "toml",
  "webpki-roots",
 ]
