@@ -111,8 +111,9 @@ sni = "www.fanbox.cc"
 On OpenSUSE
 ```bash
 $ git clone git@github.com:shanmiteko/snimap.git --depth=1
+$ sudo zypper install libopenssl-devel
 $ cargo build --release
-$ sudo zypper install libcap2
+$ sudo zypper install ibcap2 libcap-progs
 $ sudo setcap 'cap_dac_override+ep cap_net_bind_service=+ep' ./target/release/snimap
 $ cargo run --release
 ```

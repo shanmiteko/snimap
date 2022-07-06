@@ -57,15 +57,16 @@ impl ResolveResult {
                                     .to_string()
                             })
                     })
+                    .inspect(|socket_addr| log::info!(target: "lookup", "{host} -> {socket_addr}"))
             }),
             ResolveResult::WwwIpaddressCom(socket_addr) => socket_addr.get_or_try_init(|| {
                 ip_lookup_on_ipaddress_com(host)
                     .and_then(capture_ip_from_html_plain)
                     .map(|ip_addr| SocketAddr::new(ip_addr, 443))
                     .map_err(|e| e.to_string())
+                    .inspect(|socket_addr| log::info!(target: "lookup", "{host} -> {socket_addr}"))
             }),
         }
-        .inspect(|socket_addr| log::info!(target: "lookup", "{host} -> {socket_addr}"))
         .inspect_err(|e| log::error!(target: "lookup", "{host} -> failed to lookup: {e}"))
         .ok()
         .cloned()
