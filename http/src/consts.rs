@@ -1,0 +1,9 @@
+pub const SP: u8 = b' ';
+pub const CR: u8 = b'\r';
+pub const LF: u8 = b'\n';
+pub const COLON: u8 = b':';
+pub const AT: u8 = b'@';
+pub const SLASH: u8 = b'/';
+pub const HTTP: &[u8; 4] = b"HTTP";
+pub const CRLF: &[u8; 2] = b"\r\n";
+pub const CRLFCRLF: &[u8; 4] = b"\r\n\r\n";

@@ -1,26 +1,2 @@
-[package]
-name = "snimap"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-actix-tls = "3.0.3"
-actix-web = { version = "4.1.0", features = ["rustls"] }
-async-ctrlc = { version = "1.2.0", features = ["termination"] }
-attohttpc = { version = "0.19.1", features = ["form", "compress"] }
-awc = { version = "3.0.0", features = ["rustls"] }
-dirs-next = "2.0.0"
-dns-lookup = "1.0.8"
-futures = "0.3.21"
-log = "0.4.17"
-once_cell = { version = "1.13.0", features = ["parking_lot"] }
-pretty_env_logger = "0.4.0"
-rcgen = { version = "0.9.2", features = ["pem", "x509-parser"] }
-regex = "1.6.0"
-rustls = "0.20.6"
-serde = "1.0.138"
-serde_derive = "1.0.138"
-toml = "0.5.9"
-webpki-roots = "0.22.3"
-
-[features]
+[workspace]
+members = ["http", "tls", "dns", "http_proxy"]
